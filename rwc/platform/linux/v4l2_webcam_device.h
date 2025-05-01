@@ -1,0 +1,83 @@
+#pragma once
+
+#include <rwc/core/webcam_device.hpp>
+#include <rwc/utils/swsr_ring_buffer.hpp>
+#include <rwc/core/webcam_image_decoder.h>
+
+#include <vector>
+#include <optional>
+#include <chrono>
+#include <thread>
+#include <atomic>
+#include <memory>
+#include <stop_token>
+
+namespace rwc
+{
+    class v4l2_webcam_device : public webcam_device
+    {
+    public:
+        v4l2_webcam_device() = default;
+        v4l2_webcam_device(const v4l2_webcam_device&) = delete;
+        v4l2_webcam_device& operator=(const v4l2_webcam_device&) = delete;
+        v4l2_webcam_device(v4l2_webcam_device&&) = delete;
+        v4l2_webcam_device& operator=(v4l2_webcam_device&&) = delete;
+
+        // Device Operations
+        webcam_error_status open(uint32_t index) override;
+        void close() override;
+        bool is_opened() const override;
+        const webcam_device_info& device_info() const override;
+        capture_format_info current_format() noexcept override;
+        bool set_current_format(const capture_format_info& format) override;
+        static uint32_t device_count() noexcept;
+
+        // Ctrl Operations
+        std::optional<webcam_ctrl_property> get_ctrl_property(webcam_property_type type) override;
+        bool set_ctrl_property(webcam_property_type type, int32_t value) override;
+        bool set_ctrl_property_default(webcam_property_type type) override;
+        void reset_ctrl_properties() override;
+
+        // Streaming Operations
+        bool has_pending_frame() const override;
+        void set_pixel_format(webcam_frame_pixel_format pixel_format) override;
+        bool is_streaming() const override;
+        webcam_error_status start_stream() override;
+        void stop_stream() override;
+        std::expected<webcam_frame_owner, webcam_error_status> read_frame() override;
+
+        virtual ~v4l2_webcam_device() override;
+    private:
+        std::optional<webcam_device_info> read_device_info();
+        std::vector<capture_format_info> read_webcam_formats();
+        webcam_error_status setup_webcam_image();
+        webcam_error_status create_webcam_buffers(uint32_t buffer_count);
+        void destroy_webcam_buffers();
+        bool enqueue_buffers();
+        bool dequeue_buffers();
+        bool webcam_start_streaming();
+        bool webcam_stop_streaming();
+        webcam_error_status wait_device_ready(std::chrono::seconds timeout);
+        void v4l2_capture_thread(std::stop_token token);
+        bool decode_frame_to_rgb24(webcam_frame_owner* frame, uint32_t codec, webcam_image_decoder* decoder);
+        uint32_t to_v4l2_type(webcam_property_type type);
+
+        struct buffer_data
+        {
+            void* data;
+            size_t length;
+        };
+    private:
+        int32_t m_device_fd{ -1 };
+        std::string m_device_path{};
+        webcam_device_info m_device_info{};
+        capture_format_info m_current_format{};
+        webcam_frame_pixel_format m_pixel_fmt{ webcam_frame_pixel_format::native };
+        std::vector<buffer_data> m_buffer_pool;
+        std::unique_ptr<std::jthread> m_v4l2_thread;
+        swsr_ring_buffer<webcam_frame_owner, 2> m_frame_queue;
+        std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
+        std::atomic<bool> m_opened{ false };
+        std::atomic<bool> m_streaming{ false };
+    };
+}

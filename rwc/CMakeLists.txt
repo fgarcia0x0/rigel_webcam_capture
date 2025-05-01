@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 3.25)
+project(rwc_lib LANGUAGES CXX)
+
+# create executable file
+add_library(rwc)
+
+# set cpp props
+set_target_properties(rwc PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
+)
+
+# libjpeg-turbo
+find_package(libjpeg-turbo CONFIG REQUIRED)
+
+# setup compile flags
+target_compile_options(rwc PUBLIC ${RWC_COMPILE_FLAGS})
+
+# remove "lib<name>" prefix
+set_target_properties(rwc PROPERTIES PREFIX "")
+
+# include dir for use (internal)
+target_include_directories(rwc PUBLIC ${RWC_BASE_DIR})
+
+# link
+target_link_libraries(rwc PRIVATE libjpeg-turbo::turbojpeg-static)
+
+# add subdirectories
+add_subdirectory(core)
+add_subdirectory(logger)
+add_subdirectory(utils)
+add_subdirectory(platform)
