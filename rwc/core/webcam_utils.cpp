@@ -1,35 +1,7 @@
-#include <chrono>
-#include <optional>
 #include <rwc/core/webcam_utils.h>
-
-#include <ranges>
-#include <algorithm>
 
 namespace rwc
 {
-    std::chrono::milliseconds webcam_utils::current_timestamp()
-    {
-        using milli = std::chrono::milliseconds;
-        using clock = std::chrono::system_clock;
-        return std::chrono::duration_cast<milli>(clock::now().time_since_epoch());
-    }
-
-    std::optional<capture_format_info> webcam_utils::select_best_format(std::span<const rwc::capture_format_info> formats, uint32_t codec)
-    {
-        auto fmts_filtered = formats | std::views::filter([codec](const auto& format) {
-            return format.codec == codec;
-        });
-
-        if (fmts_filtered.empty())
-            return std::nullopt;
-
-        auto best_it = std::ranges::max_element(fmts_filtered, {}, [](const auto& format) {
-            return format.width * format.height * format.fps;
-        });
-
-        return *best_it;
-    }
-    
     std::string webcam_utils::prop_type_to_string(webcam_property_type type)
     {
         std::string name = "";

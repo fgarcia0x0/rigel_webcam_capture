@@ -53,6 +53,7 @@ namespace rwc
         }
 
         void set_filter(filter_func filter);
+        size_t sink_count() noexcept;
         void add_sink(std::shared_ptr<log_sink> sink);
         void set_min_level(log_level level);
 

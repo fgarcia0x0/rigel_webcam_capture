@@ -62,6 +62,12 @@ namespace rwc
             return m_head.load(std::memory_order_acquire) == m_tail.load(std::memory_order_acquire);
         }
 
+        constexpr void clear() noexcept
+        {
+            m_head.store(0, std::memory_order_release);
+            m_tail.store(0, std::memory_order_release);
+        }
+
     private:
         T m_buffer[Capacity] = {};
         std::atomic<size_t> m_head{};

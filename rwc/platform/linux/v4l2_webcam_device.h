@@ -25,11 +25,13 @@ namespace rwc
 
         // Device Operations
         webcam_error_status open(uint32_t index) override;
+        webcam_error_status reset(uint32_t index) override;
         void close() override;
         bool is_opened() const override;
         const webcam_device_info& device_info() const override;
         capture_format_info current_format() noexcept override;
         bool set_current_format(const capture_format_info& format) override;
+        bool set_current_format_by_index(uint32_t index) override;
         static uint32_t device_count() noexcept;
 
         // Ctrl Operations
@@ -40,11 +42,10 @@ namespace rwc
 
         // Streaming Operations
         bool has_pending_frame() const override;
-        void set_pixel_format(webcam_frame_pixel_format pixel_format) override;
         bool is_streaming() const override;
         webcam_error_status start_stream() override;
         void stop_stream() override;
-        std::expected<webcam_frame_owner, webcam_error_status> read_frame() override;
+        std::expected<webcam_frame_rgb24, webcam_error_status> read_frame() override;
 
         virtual ~v4l2_webcam_device() override;
     private:
@@ -59,7 +60,7 @@ namespace rwc
         bool webcam_stop_streaming();
         webcam_error_status wait_device_ready(std::chrono::seconds timeout);
         void v4l2_capture_thread(std::stop_token token);
-        bool decode_frame_to_rgb24(webcam_frame_owner* frame, uint32_t codec, webcam_image_decoder* decoder);
+        webcam_error_status decode_frame_to_rgb24(webcam_frame_rgb24* frame, uint32_t codec, webcam_image_decoder* decoder);
         uint32_t to_v4l2_type(webcam_property_type type);
 
         struct buffer_data
@@ -72,10 +73,9 @@ namespace rwc
         std::string m_device_path{};
         webcam_device_info m_device_info{};
         capture_format_info m_current_format{};
-        webcam_frame_pixel_format m_pixel_fmt{ webcam_frame_pixel_format::native };
         std::vector<buffer_data> m_buffer_pool;
         std::unique_ptr<std::jthread> m_v4l2_thread;
-        swsr_ring_buffer<webcam_frame_owner, 2> m_frame_queue;
+        swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_MIN_BUFFER_COUNT> m_frame_queue;
         std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
         std::atomic<bool> m_opened{ false };
         std::atomic<bool> m_streaming{ false };

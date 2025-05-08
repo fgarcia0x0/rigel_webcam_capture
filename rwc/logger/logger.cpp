@@ -34,6 +34,12 @@ namespace rwc
         m_filter_fn.store(std::make_shared<filter_func>(std::move(filter)));
     }
 
+    size_t logger::sink_count() noexcept
+    {
+        std::lock_guard sink_guard{ m_sink_mtx };
+        return m_sinks.size();
+    }
+
     void logger::add_sink(std::shared_ptr<log_sink> sink)
     {
         std::lock_guard sink_guard{ m_sink_mtx };

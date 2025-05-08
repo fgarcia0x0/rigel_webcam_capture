@@ -1,16 +1,71 @@
 #include <rwc/core/webcam_image_decoder.h>
+#include <rwc/core/webcam_device.hpp>
 #include <rwc/platform/platform.hpp>
 #include <rwc/logger/logger.h>
+#include <rwc/utils/scope_exit.hpp>
 
 #include <algorithm>
-#include <turbojpeg.h>
+#include <memory>
+#include <cstring>
+#include <new>
+#include <cstddef>
+
+#include <libyuv/convert_argb.h>
+#include <libyuv/mjpeg_decoder.h>
 
 namespace rwc
 {
     struct webcam_image_decoder::context
     {
-        tjhandle jpeg_handle = nullptr;
+        libyuv::MJpegDecoder mjpeg_decoder;
     };
+
+    static bool mjpeg_to_rgb24(std::span<const uint8_t> src, std::span<uint8_t> dest, libyuv::MJpegDecoder& mjpeg_decoder)
+    {
+        if (mjpeg_decoder.LoadFrame(src.data(), src.size()) != LIBYUV_TRUE)
+            return false;
+
+        int width = mjpeg_decoder.GetWidth();
+        int height = mjpeg_decoder.GetHeight();
+        int channels = mjpeg_decoder.GetNumComponents();
+        int color_space = mjpeg_decoder.GetColorSpace();
+
+        if (color_space != libyuv::MJpegDecoder::kColorSpaceYCbCr) 
+            return false;
+
+        // Allocate buffer for YUV
+        int y_size = width * height;
+        int uv_width = (width + 1) / 2;
+        int uv_height = (height + 1) / 2;
+        int uv_size = uv_width * uv_height;
+        size_t num_bytes = static_cast<size_t>(y_size + 2 * uv_size);
+
+        std::unique_ptr<uint8_t[]> yuv_data{ new (std::nothrow) uint8_t[num_bytes] };
+        if (!yuv_data)
+            return false;
+
+        uint8_t* y_plane = yuv_data.get();
+        uint8_t* u_plane = y_plane + y_size;
+        uint8_t* v_plane = u_plane + uv_size;
+        uint8_t* planes[] = { y_plane, u_plane, v_plane };
+        
+        if (!mjpeg_decoder.DecodeToBuffers(planes, width, height))
+            return false;
+
+        mjpeg_decoder.UnloadFrame();
+
+        int status = libyuv::I420ToRAW(y_plane, width, 
+                                       u_plane, uv_width,
+                                       v_plane, uv_width,
+                                       dest.data(), width * channels,
+                                       width, height);
+                                
+                                       
+        if (status != 0)
+            return false;
+
+        return true;
+    }
 
     webcam_image_decoder::webcam_image_decoder()
         : m_context(std::make_unique<context>())
@@ -19,14 +74,12 @@ namespace rwc
 
     webcam_image_decoder::~webcam_image_decoder()
     {
-        if (m_context->jpeg_handle)
-            tjDestroy(m_context->jpeg_handle);
     }
 
     webcam_image_decoder::webcam_image_decoder(webcam_image_decoder&&) = default;
     webcam_image_decoder& webcam_image_decoder::operator=(webcam_image_decoder&&) = default;
 
-    bool webcam_image_decoder::yuyv_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count)
+    static inline bool yuyv_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count)
     {
         if (!src || !dest || !src_pixel_count)
             return false;
@@ -53,42 +106,16 @@ namespace rwc
 
         return true;
     }
-    
-    bool webcam_image_decoder::jpeg_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count)
+
+    bool webcam_image_decoder::decode_to_rgb24(std::span<const uint8_t> src, 
+                                               std::span<uint8_t> dest, 
+                                               uint32_t codec_type)
     {
-        if (!src || !dest || !src_pixel_count)
+        if (codec_type == RWC_WEBCAM_CODEC_TYPE_YUYV)
+            return yuyv_to_rgb24(src.data(), dest.data(), src.size());
+        else if (codec_type == RWC_WEBCAM_CODEC_TYPE_MJPEG)
+            return mjpeg_to_rgb24(src, dest, m_context->mjpeg_decoder);
+        else
             return false;
-
-        if (!m_context->jpeg_handle)
-        {
-            m_context->jpeg_handle = tjInitDecompress();
-            if (!m_context->jpeg_handle)
-            {
-                RWC_LOG_ERROR("Failed to initialize libjpeg-turbo ({})", tjGetErrorStr());
-                return false;
-            }
-        }
-
-        int width{};
-        int height{};
-        int subsamp{};
-        int colorspace{};
-        int status{};
-
-        status = tjDecompressHeader3(m_context->jpeg_handle, src, src_pixel_count, &width, &height, &subsamp, &colorspace);
-        if (status != 0)
-        {
-            RWC_LOG_ERROR("Failed to decode jpeg image header ({})", tjGetErrorStr());
-            return false;
-        }
-
-        status = tjDecompress2(m_context->jpeg_handle, src, src_pixel_count, dest, width, 0, height, TJPF_RGB, TJFLAG_FASTDCT);
-        if (status != 0)
-        {
-            RWC_LOG_ERROR("Failed to decompress jpeg image to raw bytes [w: {}, h: {}, size: {}] ({})", width, height, src_pixel_count, tjGetErrorStr());
-            return false;
-        }
-        
-        return true;
     }
 }

@@ -51,19 +51,12 @@ namespace rwc
         std::vector<capture_format_info> formats;
     };
 
-    enum class webcam_frame_pixel_format : uint8_t
-    {
-        native,
-        rgb24
-    };
-
-    struct webcam_frame_owner
+    struct webcam_frame_rgb24
     {
         std::uint32_t width;
         std::uint32_t height;
         std::uint32_t size;
-        webcam_frame_pixel_format pixel_format;
-        std::chrono::milliseconds timestamp;
+        std::time_t timestamp;
         std::unique_ptr<std::uint8_t[]> buffer;
     };
 
@@ -72,10 +65,13 @@ namespace rwc
         ok = 0,
         invalid_device,
         bad_device,
+        unsupported_codec,
+        memory_exhausted,
         invalid_format,
         device_cannot_capture,
         device_not_available,
         device_cannot_streaming,
+        device_already_opened,
         cannot_set_image_format,
         cannot_create_buffer,
         cannot_setup_buffer,
@@ -125,14 +121,15 @@ namespace rwc
         int32_t maximum;
         int32_t default_value;
         bool is_auto;
+        uint32_t unused;
     };
 
     class webcam_device
     {
     public:
         // Device Operations //
-    
         virtual webcam_error_status open(uint32_t index = 0) = 0;
+        virtual webcam_error_status reset(uint32_t index = 0) = 0;
         virtual void close() = 0;
 
         [[nodiscard]]
@@ -145,8 +142,10 @@ namespace rwc
         virtual capture_format_info current_format() noexcept = 0;
 
         virtual bool set_current_format(const capture_format_info& format) = 0;
+        virtual bool set_current_format_by_index(uint32_t index) = 0;
 
         // Device Capability Operations
+        [[nodiscard]]
         virtual std::optional<webcam_ctrl_property> get_ctrl_property(webcam_property_type type) = 0;
         virtual bool set_ctrl_property(webcam_property_type type, int32_t value) = 0;
         virtual bool set_ctrl_property_default(webcam_property_type type) = 0;
@@ -160,14 +159,12 @@ namespace rwc
         [[nodiscard]]
         virtual bool has_pending_frame() const = 0;
 
-        virtual void set_pixel_format(webcam_frame_pixel_format pixel_format) = 0;
-
         virtual webcam_error_status start_stream() = 0;
 
         virtual void stop_stream() = 0;
 
         [[nodiscard]]
-        virtual std::expected<webcam_frame_owner, webcam_error_status> read_frame() = 0;
+        virtual std::expected<webcam_frame_rgb24, webcam_error_status> read_frame() = 0;
 
         virtual ~webcam_device() = default;
     };

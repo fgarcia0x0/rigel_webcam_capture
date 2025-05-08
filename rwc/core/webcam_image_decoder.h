@@ -1,9 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <cstddef>
 #include <memory>
-#include <memory>
+#include <span>
 
 namespace rwc
 {
@@ -15,8 +14,7 @@ namespace rwc
         webcam_image_decoder(webcam_image_decoder&&);
         webcam_image_decoder& operator=(webcam_image_decoder&&);
 
-        bool yuyv_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count);
-        bool jpeg_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count);
+        bool decode_to_rgb24(std::span<const uint8_t> src, std::span<uint8_t> dest, uint32_t codec_type);
 
         ~webcam_image_decoder();
 

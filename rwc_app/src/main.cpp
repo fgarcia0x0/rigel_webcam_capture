@@ -25,19 +25,20 @@ int streaming_test()
     rwc::logger::instance().add_sink(std::make_shared<rwc::console_sink>());
 
     auto wcam = rwc::webcam_manager::create_device();
-    wcam->open();
+    if (wcam->open() != rwc::webcam_error_status::ok)
+        return 1;
 
-    wcam->set_current_format(*rwc::webcam_utils::select_best_format(wcam->device_info().formats, rwc::RWC_WEBCAM_CODEC_TYPE_MJPEG));
-    wcam->set_pixel_format(rwc::webcam_frame_pixel_format::rgb24);
+    auto fmt = *rwc::webcam_utils::select_capture_format(wcam->device_info().formats, rwc::RWC_WEBCAM_CODEC_TYPE_MJPEG, std::greater<>{});
+    if (!wcam->set_current_format(fmt))
+        return 1;
 
     if (wcam->start_stream() != rwc::webcam_error_status::ok)
         return 1;
 
     size_t fps{};
-    constexpr size_t target_fps{ 30 };
+    constexpr size_t target_fps{ 30*3 };
 
     RWC_LOG_INFO("Processing Started");
-
     auto t0 = std::chrono::steady_clock::now();
     while (fps != target_fps)
     {
@@ -90,9 +91,9 @@ int props_test()
         if (auto wc_ctrl_prop = wcam->get_ctrl_property(wc_prop_type); wc_ctrl_prop)
         {
             std::println("[+] Property \"{}\" => (v: {}, step: {}, min: {}, max: {}, dft: {})",
-                        rwc::webcam_utils::prop_type_to_string(wc_prop_type),
-                        wc_ctrl_prop->value, wc_ctrl_prop->step, wc_ctrl_prop->minimum, 
-                        wc_ctrl_prop->maximum, wc_ctrl_prop->default_value);
+                         rwc::webcam_utils::prop_type_to_string(wc_prop_type),
+                         wc_ctrl_prop->value, wc_ctrl_prop->step, wc_ctrl_prop->minimum, 
+                         wc_ctrl_prop->maximum, wc_ctrl_prop->default_value);
         }
     }
     

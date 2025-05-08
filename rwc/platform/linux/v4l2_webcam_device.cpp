@@ -1,10 +1,9 @@
-#include "rwc/core/webcam_device.hpp"
-#include <cstdint>
 #include <rwc/platform/linux/v4l2_webcam_device.h>
 #include <rwc/core/webcam_image_decoder.h>
 #include <rwc/core/webcam_utils.h>
 #include <rwc/utils/scope_exit.hpp>
 #include <rwc/logger/logger.h>
+#include <rwc/utils/utils.hpp>
 
 #include <sys/ioctl.h>
 #include <sys/select.h>
@@ -25,6 +24,8 @@
 #include <stop_token>
 #include <utility>
 #include <cstdlib>
+#include <cstdint>
+#include <new>
 
 using namespace std::chrono_literals;
 
@@ -44,6 +45,12 @@ namespace rwc
 {
     webcam_error_status v4l2_webcam_device::open(uint32_t index)
     {
+        if (m_opened)
+            return webcam_error_status::device_already_opened;
+
+        if (m_streaming)
+            return webcam_error_status::invalid_state;
+
         scope_exit fd_guard = [this](){ if (m_device_fd != -1) ::close(m_device_fd); };
 
         m_device_path = std::format("/dev/video{}", index);
@@ -72,12 +79,18 @@ namespace rwc
         // select best format if not set
         if (!m_current_format.width || !m_current_format.height)
         {
-            auto best_fmt = webcam_utils::select_best_format(m_device_info.formats, RWC_WEBCAM_CODEC_TYPE_DEFAULT);
+            auto best_fmt = webcam_utils::select_capture_format(m_device_info.formats, RWC_WEBCAM_CODEC_TYPE_DEFAULT, std::greater<>{});
             m_current_format = best_fmt.value_or(m_device_info.formats[0]);
         }
         
         fd_guard.reset();
         return webcam_error_status::ok;
+    }
+
+    webcam_error_status v4l2_webcam_device::reset(uint32_t index)
+    {
+        close();
+        return open(index);
     }
     
     void v4l2_webcam_device::close()
@@ -91,6 +104,8 @@ namespace rwc
             m_device_fd = -1;
         }
 
+        m_last_frame_status = webcam_error_status::ok;
+        m_frame_queue.clear();
         m_opened = false;
     }
     
@@ -121,6 +136,9 @@ namespace rwc
     
     bool v4l2_webcam_device::set_current_format(const capture_format_info& format)
     {
+        if (m_streaming)
+            return false;
+
         const auto& formats = m_device_info.formats;
         if (std::find(formats.cbegin(), formats.cend(), format) == formats.cend())
             return false;
@@ -129,12 +147,16 @@ namespace rwc
         return true;
     }
     
-    void v4l2_webcam_device::set_pixel_format(webcam_frame_pixel_format pixel_format)
+    bool v4l2_webcam_device::set_current_format_by_index(uint32_t index)
     {
-        m_pixel_fmt = pixel_format;
+        if (index >= m_device_info.formats.size())
+            return false;
+
+        m_current_format = m_device_info.formats[index];
+        return true;
     }
     
-    std::expected<webcam_frame_owner, webcam_error_status> v4l2_webcam_device::read_frame()
+    std::expected<webcam_frame_rgb24, webcam_error_status> v4l2_webcam_device::read_frame()
     {
         if (!is_opened())
             return std::unexpected{ webcam_error_status::bad_device };
@@ -576,14 +598,20 @@ namespace rwc
 
         while (!token.stop_requested())
         {
-            // wait here
             webcam_error_status status = wait_device_ready(RWC_WEBCAM_STREAMING_TIMEOUT);
+
             if (status == webcam_error_status::timeout)
             {
                 if (++timeout_count < RWC_WEBCAM_STREAMING_MAX_CONTINUOS_TIMEOUT)
+                {
                     continue;
+                }
                 else 
+                {
                     RWC_LOG_WARN("Continuous Timeout: {}", timeout_count);
+                    m_last_frame_status = status;
+                    return;
+                }
             }
 
             if (status != webcam_error_status::ok)
@@ -602,7 +630,7 @@ namespace rwc
                 return;
             }
             
-            auto img_buffer = std::make_unique<uint8_t[]>(buffer.bytesused);
+            std::unique_ptr<uint8_t[]> img_buffer{ new (std::nothrow) uint8_t[buffer.bytesused] };
             if (!img_buffer)
             {
                 m_last_frame_status = webcam_error_status::cannot_create_buffer;
@@ -611,19 +639,15 @@ namespace rwc
 
             std::memcpy(img_buffer.get(), m_buffer_pool[buffer.index].data, buffer.bytesused);
 
-            auto timestamp = webcam_utils::current_timestamp();
-            webcam_frame_owner frame{ m_current_format.width, m_current_format.height, 
-                                      buffer.bytesused, m_pixel_fmt, timestamp, std::move(img_buffer) };
+            auto timestamp = rwc::utils::current_timestamp();
+            webcam_frame_rgb24 frame{ m_current_format.width, m_current_format.height,
+                                      buffer.bytesused, timestamp, std::move(img_buffer) };
 
-            // decode frame if necessary
-            if (m_pixel_fmt != webcam_frame_pixel_format::native)
+            status = decode_frame_to_rgb24(&frame, m_current_format.codec, &decoder);
+            if (status != webcam_error_status::ok)
             {
-                bool frame_decoded = decode_frame_to_rgb24(&frame, m_current_format.codec, &decoder);
-                if (!frame_decoded)
-                {
-                    m_last_frame_status = webcam_error_status::cannot_decode_frame;
-                    continue; // ignore this frame and go to another
-                }
+                m_last_frame_status = status;
+                continue; // ignore this frame and go to another
             }
             
             m_frame_queue.enqueue(std::move(frame));
@@ -635,40 +659,51 @@ namespace rwc
             }
         }
     }
+
+    static inline auto fourcc_to_str(uint32_t code)
+    {
+        std::string result(sizeof(uint32_t) + 1, '\0');
+        std::memcpy(result.data(), &code, sizeof(uint32_t));
+        return result;
+    }
     
-    bool v4l2_webcam_device::decode_frame_to_rgb24(webcam_frame_owner* frame, uint32_t codec, webcam_image_decoder* decoder)
+    webcam_error_status v4l2_webcam_device::decode_frame_to_rgb24(webcam_frame_rgb24* frame, uint32_t codec, webcam_image_decoder* decoder)
     {
         static constexpr uint32_t rgb_bytes_per_pixel{ 3 };
-        static constexpr std::array supported_codecs{ RWC_WEBCAM_CODEC_TYPE_YUYV, RWC_WEBCAM_CODEC_TYPE_MJPEG, RWC_WEBCAM_CODEC_TYPE_JPEG };
+        static constexpr std::array supported_codecs { 
+            RWC_WEBCAM_CODEC_TYPE_YUYV, 
+            RWC_WEBCAM_CODEC_TYPE_MJPEG, 
+            RWC_WEBCAM_CODEC_TYPE_JPEG 
+        };
 
         // if not contains any supported codecs, return
         if (std::find(supported_codecs.cbegin(), supported_codecs.cend(), codec) == supported_codecs.cend())
-            return false;
-
-        uint32_t new_buffer_size = frame->width * frame->height * rgb_bytes_per_pixel;
-        auto new_buffer = std::make_unique<uint8_t[]>(new_buffer_size);
-        bool decoded = false;
-        
-        switch (codec) 
         {
-            case RWC_WEBCAM_CODEC_TYPE_YUYV:
-                decoded = decoder->yuyv_to_rgb24(frame->buffer.get(), new_buffer.get(), frame->size);
-                break;
-            case RWC_WEBCAM_CODEC_TYPE_JPEG:
-            case RWC_WEBCAM_CODEC_TYPE_MJPEG:
-                decoded = decoder->jpeg_to_rgb24(frame->buffer.get(), new_buffer.get(), frame->size);
-                break;
-            default:
-                break;
+            RWC_LOG_ERROR("Unsupported codec [codec=\"{}\"]", fourcc_to_str(codec));
+            return webcam_error_status::unsupported_codec;
         }
 
+        uint32_t new_buffer_size = frame->width * frame->height * rgb_bytes_per_pixel;
+        std::unique_ptr<uint8_t[]> new_buffer(new (std::nothrow) uint8_t[new_buffer_size]);
+        if (!new_buffer)
+        {
+            RWC_LOG_ERROR("Failed to allocate {:.3f} MiB of memory for frame buffer", new_buffer_size / 1024.0 / 1024.0);
+            return webcam_error_status::memory_exhausted;
+        }
+
+        bool decoded = decoder->decode_to_rgb24(std::span{ frame->buffer.get(), frame->size }, 
+                                                std::span{ new_buffer.get(), new_buffer_size }, 
+                                                codec);
         if (!decoded)
-            return false;
+        {
+            RWC_LOG_ERROR("Failed to decode frame [codec={}]", fourcc_to_str(codec));
+            return webcam_error_status::cannot_decode_frame;
+        }
 
         frame->size = new_buffer_size;
         frame->buffer = std::move(new_buffer);
 
-        return true;
+        return webcam_error_status::ok;
     }
     
     uint32_t v4l2_webcam_device::to_v4l2_type(webcam_property_type type)
