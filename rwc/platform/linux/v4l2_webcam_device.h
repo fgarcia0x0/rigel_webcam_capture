@@ -75,7 +75,7 @@ namespace rwc
         capture_format_info m_current_format{};
         std::vector<buffer_data> m_buffer_pool;
         std::unique_ptr<std::jthread> m_v4l2_thread;
-        swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_MIN_BUFFER_COUNT> m_frame_queue;
+        swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
         std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
         std::atomic<bool> m_opened{ false };
         std::atomic<bool> m_streaming{ false };

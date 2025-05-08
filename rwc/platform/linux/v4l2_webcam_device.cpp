@@ -416,6 +416,12 @@ namespace rwc
         if(sys_ioctl(m_device_fd, VIDIOC_REQBUFS, &req_buffer) < 0) 
             return webcam_error_status::cannot_setup_buffer;
 
+        if (req_buffer.count < RWC_WEBCAM_STREAMING_MIN_BUFFER_COUNT)
+        {
+            RWC_LOG_ERROR("The buffer count requested [{}] is less than minimum count [{}]", buffer_count, RWC_WEBCAM_STREAMING_MIN_BUFFER_COUNT);
+            return webcam_error_status::cannot_create_buffer;
+        }
+
         if (req_buffer.count != buffer_count)
         {
             RWC_LOG_WARN("The buffer count requested [{}] was denied, driver using [{}] instead", buffer_count, req_buffer.count);
