@@ -1,10 +1,11 @@
 #pragma once
 
+#include <rwc/platform/platform.hpp>
+#include <rwc/logger/log_message.hpp>
+
 namespace rwc
 {
-    struct log_message;
-
-    class log_sink
+    class RWC_API log_sink
     {
     public:
         virtual ~log_sink() = default;

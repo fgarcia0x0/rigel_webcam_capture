@@ -7,7 +7,7 @@ namespace rwc
 {
     struct webcam_manager
     {
-        static uint32_t device_count() noexcept;
-        static std::shared_ptr<webcam_device> create_device();
+        static RWC_API uint32_t device_count() noexcept;
+        static RWC_API std::shared_ptr<webcam_device> create_device();
     };
 }

@@ -4,9 +4,12 @@
 #include <vector>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <array>
 #include <chrono>
 #include <memory>
+
+#include <rwc/platform/platform.hpp>
 
 namespace rwc
 {    
@@ -25,6 +28,7 @@ namespace rwc
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_JPEG                 = detail::FourCC({'J', 'P', 'E', 'G'});
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_H264                 = detail::FourCC({'H', '2', '6', '4'});
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUYV                 = detail::FourCC({'Y', 'U', 'Y', 'V'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUY2                 = detail::FourCC({'Y', 'U', 'Y', '2'});
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_DEFAULT              = RWC_WEBCAM_CODEC_TYPE_MJPEG;
     static constexpr auto RWC_WEBCAM_TYPICAL_FRAMERATE               = 30u;
     static constexpr auto RWC_WEBCAM_STREAMING_BUFFER_COUNT          = 2u;
@@ -40,6 +44,13 @@ namespace rwc
         uint32_t codec{ RWC_WEBCAM_CODEC_TYPE_DEFAULT };
 
         friend constexpr auto operator<=>(const capture_format_info&, const capture_format_info&) = default;
+       
+        std::string to_string() const
+        {
+            char codec_str[5] = { 0 };
+            memcpy(codec_str, &codec, sizeof(uint32_t));
+            return std::format("{}x{} @ {} fps, codec: {}", width, height, fps, codec_str);
+        }
     };
 
     struct webcam_device_info
@@ -75,12 +86,15 @@ namespace rwc
         cannot_set_image_format,
         cannot_create_buffer,
         cannot_setup_buffer,
+        cannot_setup_decoder,
         cannot_map_buffer,
         cannot_enqueue_buffer,
         cannot_dequeue_buffer,
         cannot_start_streaming,
         cannot_stop_streaming,
         cannot_setup_framerate,
+        cannot_setup_hardware_decoding,
+        cannot_initialize_device,
         invalid_state,
         frame_not_ready,
         timeout,
@@ -124,7 +138,7 @@ namespace rwc
         uint32_t unused;
     };
 
-    class webcam_device
+    class RWC_API webcam_device
     {
     public:
         // Device Operations //

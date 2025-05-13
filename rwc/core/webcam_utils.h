@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rwc/core/webcam_device.hpp>
+#include <rwc/platform/platform.hpp>
 
 #include <span>
 #include <cstdint>
@@ -12,7 +13,7 @@ namespace rwc
 {
     struct webcam_utils
     {
-        static std::string prop_type_to_string(webcam_property_type type);
+        static RWC_API std::string prop_type_to_string(webcam_property_type type);
 
         template <typename Compare = std::greater<>, typename Projection = std::identity>
         static constexpr std::optional<capture_format_info> select_capture_format(std::span<const rwc::capture_format_info> formats,

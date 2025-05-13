@@ -2,13 +2,15 @@
 #include <rwc/core/webcam_manager.h>
 #include <rwc/core/webcam_utils.h>
 #include <rwc/logger/logger.h>
-#include <rwc/logger/console_sink.hpp>
+#include <rwc/logger/console_sink.h>
+#include <rwc/logger/file_sink.h>
 
 #include <print>
 #include <fstream>
 #include <chrono>
 #include <cassert>
 #include <memory>
+#include <stdio.h>
 #include <utility>
 
 int streaming_test();
@@ -23,13 +25,25 @@ int streaming_test()
 {
     // create a console sinker
     rwc::logger::instance().add_sink(std::make_shared<rwc::console_sink>());
+    rwc::logger::instance().add_sink(std::make_shared<rwc::file_sink>("rwc_log.log"));
+
+    auto webcam_count = rwc::webcam_manager::device_count();
+    (void)webcam_count;
 
     auto wcam = rwc::webcam_manager::create_device();
     if (wcam->open() != rwc::webcam_error_status::ok)
         return 1;
 
-    auto fmt = *rwc::webcam_utils::select_capture_format(wcam->device_info().formats, rwc::RWC_WEBCAM_CODEC_TYPE_MJPEG, std::greater<>{});
-    if (!wcam->set_current_format(fmt))
+    for (const auto& fmt : wcam->device_info().formats)
+    {
+        std::println("[+] Format: {}", fmt.to_string());
+    }
+
+    auto fmt = rwc::webcam_utils::select_capture_format(wcam->device_info().formats, rwc::RWC_WEBCAM_CODEC_TYPE_H264, std::greater<>{});
+    if (!fmt)
+        return 1;
+
+    if (!wcam->set_current_format(*fmt))
         return 1;
 
     if (wcam->start_stream() != rwc::webcam_error_status::ok)

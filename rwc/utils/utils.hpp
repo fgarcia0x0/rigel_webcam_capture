@@ -1,12 +1,16 @@
 #pragma once
 
+#include <rwc/platform/platform.hpp>
+#include <rwc/logger/log_sink.h>
+#include <rwc/logger/log_message.hpp>
+
 #include <chrono>
 #include <ctime>
 #include <string>
 #include <string_view>
 #include <sstream>
-
-#include <rwc/platform/platform.hpp>
+#include <format>
+#include <utility>
 
 namespace rwc::utils
 {
@@ -35,4 +39,16 @@ namespace rwc::utils
 
         return oss.str();
     }
+
+    static inline std::string format_log_message(const log_message& msg)
+    {
+        constexpr const char* level_str[] = { "TRACE", "INFO", "DEBUG", "WARN", "ERROR", "CRITICAL" };
+
+        std::string_view filename = msg.loc.file_name();
+        std::string ts = rwc::utils::format_timestamp(msg.timestamp);
+        filename = filename.substr(filename.find_last_of("/\\") + 1);
+        
+        return std::format("[{}] [{}] [{}:{}] {}", ts, level_str[std::to_underlying(msg.level)], filename, msg.loc.line(), msg.msg);
+    }
+
 }

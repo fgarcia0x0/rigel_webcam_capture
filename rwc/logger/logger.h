@@ -8,9 +8,11 @@
 #include <format>
 #include <functional>
 #include <source_location>
+#include <vector>
 
 #include <rwc/platform/platform.hpp>
 #include <rwc/logger/log_sink.h>
+#include <rwc/logger/log_message.hpp>
 
 #define RWC_LOG_TRACE(...) rwc::logger::instance().log(rwc::log_level::trace,    std::source_location::current(), __VA_ARGS__)
 #define RWC_LOG_INFO(...)  rwc::logger::instance().log(rwc::log_level::info,     std::source_location::current(), __VA_ARGS__)
@@ -23,39 +25,21 @@
 
 namespace rwc
 {
-    enum class log_level : uint32_t
-    {
-        trace,
-        info,
-        debug,
-        warn,
-        error,
-        critical
-    };
-
-    struct log_message
-    {
-        log_level level;
-        std::string msg;
-        std::time_t timestamp;
-        std::source_location loc;
-    };
-
     class logger
     {
     public:
         using filter_func = std::function<bool(const log_message&)>;
     public:
-        static logger& instance() noexcept
+        RWC_API static logger& instance() noexcept
         {
             static logger logger;
             return logger;
         }
 
-        void set_filter(filter_func filter);
-        size_t sink_count() noexcept;
-        void add_sink(std::shared_ptr<log_sink> sink);
-        void set_min_level(log_level level);
+        RWC_API void set_filter(filter_func filter);
+        RWC_API size_t sink_count() noexcept;
+        RWC_API void add_sink(std::shared_ptr<log_sink> sink);
+        RWC_API void set_min_level(log_level level);
 
         template<typename... Args>
         constexpr void log(log_level level, const std::source_location& loc, std::format_string<Args...> fmt, Args&&... args) 
@@ -65,7 +49,9 @@ namespace rwc
         }
         
     private:
-        void log_impl(log_level level, const std::source_location& loc, std::string_view msg);
+        logger() = default;
+
+        RWC_API void log_impl(log_level level, const std::source_location& loc, std::string_view msg);
         
         std::vector<std::shared_ptr<log_sink>> m_sinks;
         std::mutex m_sink_mtx;

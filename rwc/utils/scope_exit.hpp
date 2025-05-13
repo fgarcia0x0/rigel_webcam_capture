@@ -16,12 +16,12 @@ namespace rwc
             };
         }
 
-        constexpr void reset()
+        void reset()
         {
             m_callback = {};
         }
 
-        constexpr ~scope_exit()
+        ~scope_exit()
         {
             if (m_callback)
                 m_callback();

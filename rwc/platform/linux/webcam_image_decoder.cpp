@@ -1,10 +1,9 @@
-#include <rwc/core/webcam_image_decoder.h>
+#include <rwc/platform/linux/webcam_image_decoder.h>
 #include <rwc/core/webcam_device.hpp>
 #include <rwc/platform/platform.hpp>
 #include <rwc/logger/logger.h>
 #include <rwc/utils/scope_exit.hpp>
 
-#include <algorithm>
 #include <memory>
 #include <cstring>
 #include <new>
@@ -79,6 +78,11 @@ namespace rwc
     webcam_image_decoder::webcam_image_decoder(webcam_image_decoder&&) = default;
     webcam_image_decoder& webcam_image_decoder::operator=(webcam_image_decoder&&) = default;
 
+    static inline uint8_t clamp(int32_t value, int32_t min, int32_t max) noexcept
+    {
+        return (value < min) ? min : ((max < value) ? max : value);
+    }
+
     static inline bool yuyv_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count)
     {
         if (!src || !dest || !src_pixel_count)
@@ -96,12 +100,12 @@ namespace rwc
             const int16_t yy0 = 19 * (y0 - 16);
             const int16_t yy1 = 19 * (y1 - 16);
 
-            *dest++ = uint8_t(std::clamp<int32_t>((yy0 + 32*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(std::clamp<int32_t>((yy0 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(std::clamp<int32_t>((yy0 + 26*(cr - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(std::clamp<int32_t>((yy1 + 32*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(std::clamp<int32_t>((yy1 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(std::clamp<int32_t>((yy1 + 26*(cr - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy0 + 32*(cb - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy0 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy0 + 26*(cr - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy1 + 32*(cb - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy1 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
+            *dest++ = uint8_t(clamp((yy1 + 26*(cr - 128)) >> 4, 0, 255));
         }
 
         return true;
@@ -111,7 +115,7 @@ namespace rwc
                                                std::span<uint8_t> dest, 
                                                uint32_t codec_type)
     {
-        if (codec_type == RWC_WEBCAM_CODEC_TYPE_YUYV)
+        if (codec_type == RWC_WEBCAM_CODEC_TYPE_YUYV || codec_type == RWC_WEBCAM_CODEC_TYPE_YUY2)
             return yuyv_to_rgb24(src.data(), dest.data(), src.size());
         else if (codec_type == RWC_WEBCAM_CODEC_TYPE_MJPEG)
             return mjpeg_to_rgb24(src, dest, m_context->mjpeg_decoder);

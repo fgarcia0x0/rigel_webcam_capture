@@ -13,9 +13,6 @@ set_target_properties(rwc PROPERTIES
     CXX_EXTENSIONS NO
 )
 
-# find libs
-find_package(libyuv CONFIG REQUIRED)
-
 # setup compile flags
 target_compile_options(rwc PUBLIC ${RWC_COMPILE_FLAGS})
 
@@ -25,8 +22,8 @@ set_target_properties(rwc PROPERTIES PREFIX "")
 # include dir for use (internal)
 target_include_directories(rwc PUBLIC ${RWC_BASE_DIR})
 
-# link
-target_link_libraries(rwc PRIVATE yuv)
+# compile definitions
+target_compile_definitions(rwc PRIVATE RWC_EXPORTS)
 
 # add subdirectories
 add_subdirectory(core)
