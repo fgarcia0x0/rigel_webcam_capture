@@ -1,5 +1,8 @@
 {
   "dependencies": [
-    "libyuv"
+    {
+      "name": "libyuv",
+      "platform": "!windows"
+    }
   ]
 }
