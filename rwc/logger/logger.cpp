@@ -6,6 +6,12 @@
 
 namespace rwc
 {
+    logger& logger::instance() noexcept
+    {
+        static logger logger;
+        return logger;
+    }
+    
     void logger::log_impl(log_level level, const std::source_location& loc, std::string_view msg)
     {
         if (std::to_underlying(level) < std::to_underlying(m_min_level.load()))

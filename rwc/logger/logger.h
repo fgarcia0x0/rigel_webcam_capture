@@ -30,12 +30,8 @@ namespace rwc
     public:
         using filter_func = std::function<bool(const log_message&)>;
     public:
-        RWC_API static logger& instance() noexcept
-        {
-            static logger logger;
-            return logger;
-        }
-
+        RWC_API static logger& instance() noexcept;
+        
         RWC_API void set_filter(filter_func filter);
         RWC_API size_t sink_count() noexcept;
         RWC_API void add_sink(std::shared_ptr<log_sink> sink);

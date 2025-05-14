@@ -20,5 +20,9 @@ target_compile_features(rwc_app PUBLIC cxx_std_23)
 # link against the library
 target_link_libraries(rwc_app PRIVATE rwc)
 
+if (MINGW)
+    target_link_libraries(rwc_app PRIVATE -lstdc++exp)
+endif()
+
 # setup compile flags
 target_compile_options(rwc_app PUBLIC ${RWC_COMPILE_FLAGS})

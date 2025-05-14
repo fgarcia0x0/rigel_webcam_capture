@@ -25,6 +25,9 @@ target_include_directories(rwc PUBLIC ${RWC_BASE_DIR})
 # compile definitions
 target_compile_definitions(rwc PRIVATE RWC_EXPORTS)
 
+# print compiler name
+message(STATUS "Target Compiler: " ${CMAKE_CXX_COMPILER_ID})
+
 # add subdirectories
 add_subdirectory(core)
 add_subdirectory(logger)

@@ -18,7 +18,6 @@
 #include <vector>
 #include <functional>
 #include <cstdint>
-#include <chrono>
 #include <string.h>
 
 using Microsoft::WRL::ComPtr;
@@ -88,7 +87,7 @@ namespace rwc
         if (buffer_size == 0)
             return {};
 
-        std::string result(buffer_size, 0);
+        std::string result(size_t(buffer_size), 0);
 
         // Convert the string
         int chars_conv = WideCharToMultiByte(CP_UTF8, 0, wide_str, -1, result.data(), buffer_size, nullptr, nullptr);
@@ -96,7 +95,7 @@ namespace rwc
             return {};
 
         // Remove null terminator at the end
-        result.resize(chars_conv - 1);
+        result.resize(size_t(chars_conv - 1));
 
         return result;
     }
@@ -152,7 +151,8 @@ namespace rwc
         if (index >= context->device_count)
             return status;
 
-        hr = context->devices[index]->ActivateObject(IID_PPV_ARGS(&context->media_source));
+        // __uuidof(**(&context->media_source))
+        hr = context->devices[index]->ActivateObject(IID_IMFMediaSource, &context->media_source);
         if (FAILED(hr)) 
             return status;
 
@@ -622,7 +622,7 @@ namespace rwc
             HRESULT hr = S_OK;
 
             {
-                scoped_timer<std::chrono::milliseconds> sample_timer{ "Acquire Frame" };
+                scoped_timer<milli_dbl> sample_timer{ "Acquire Frame" };
                 sample_timer.set_num_digits(2);
 
                 hr = m_context->source_reader->ReadSample(m_context->device_index, 0, &actual_stream_index, &stream_flags, &timestamp, &sample);
@@ -659,7 +659,6 @@ namespace rwc
             }
 
             uint8_t* buffer_data = nullptr;
-
             std::unique_ptr<uint8_t[]> img_buffer{ new (std::nothrow) uint8_t[bytes_read] };
             if (!img_buffer)
             {
@@ -700,7 +699,8 @@ namespace rwc
             CLSID_CColorConvertDMO,
             nullptr,
             CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&color_converter)
+            IID_IMFTransform,
+            &color_converter
         );
 
         if (FAILED(hr))

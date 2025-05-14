@@ -34,7 +34,7 @@ namespace rwc
                 if (!best_value || comp(value, *best_value))
                 {
                     best_format = format;
-                    best_value = value;
+                    best_value = std::move(value);
                 }
             }
 
