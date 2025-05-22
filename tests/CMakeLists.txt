@@ -26,4 +26,4 @@ add_executable(webcam_ctrl_test webcam_ctrl_test.cpp)
 target_link_libraries(webcam_ctrl_test PRIVATE GTest::gtest_main rwc)
 
 include(GoogleTest)
-gtest_discover_tests(webcam_ctrl_test)
+gtest_discover_tests(webcam_ctrl_test WORKING_DIRECTORY ${CMAKE_HOME_DIRECTORY}/bin)

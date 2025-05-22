@@ -104,8 +104,11 @@ namespace rwc
 
     bool mmf_webcam_controller::load(void* mf_source_reader)
     {
+        // we must define this instead of using GUID_NULL because its causes a warning in clang (GNU)
+        constexpr GUID null_guid = {};
+
         auto src_reader = reinterpret_cast<IMFSourceReader *>(mf_source_reader);
-        HRESULT hr = src_reader->GetServiceForStream(DWORD(MF_SOURCE_READER_MEDIASOURCE), GUID_NULL, IID_IKsControl, &m_context->iks_ctrl);
+        HRESULT hr = src_reader->GetServiceForStream(DWORD(MF_SOURCE_READER_MEDIASOURCE), null_guid, IID_IKsControl, &m_context->iks_ctrl);
         
         if (FAILED(hr))
         {
