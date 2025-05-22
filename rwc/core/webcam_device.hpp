@@ -15,20 +15,21 @@ namespace rwc
 {    
     namespace detail
     {
-        static constexpr uint32_t FourCC(const std::array<uint8_t, 4>& buffer) 
+        static constexpr inline uint32_t make_fourcc(const std::array<uint8_t, 4>& buffer) 
         {
-            return static_cast<uint32_t>(buffer[0]) |
-                   (static_cast<uint32_t>(buffer[1]) << 8) |
+            return static_cast<uint32_t>(buffer[0])         |
+                   (static_cast<uint32_t>(buffer[1]) << 8)  |
                    (static_cast<uint32_t>(buffer[2]) << 16) |
                    (static_cast<uint32_t>(buffer[3]) << 24);
         }
     }
 
-    static constexpr auto RWC_WEBCAM_CODEC_TYPE_MJPEG                = detail::FourCC({'M', 'J', 'P', 'G'});
-    static constexpr auto RWC_WEBCAM_CODEC_TYPE_JPEG                 = detail::FourCC({'J', 'P', 'E', 'G'});
-    static constexpr auto RWC_WEBCAM_CODEC_TYPE_H264                 = detail::FourCC({'H', '2', '6', '4'});
-    static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUYV                 = detail::FourCC({'Y', 'U', 'Y', 'V'});
-    static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUY2                 = detail::FourCC({'Y', 'U', 'Y', '2'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_MJPEG                = detail::make_fourcc({'M', 'J', 'P', 'G'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_JPEG                 = detail::make_fourcc({'J', 'P', 'E', 'G'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_H264                 = detail::make_fourcc({'H', '2', '6', '4'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUYV                 = detail::make_fourcc({'Y', 'U', 'Y', 'V'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_YUY2                 = detail::make_fourcc({'Y', 'U', 'Y', '2'});
+    static constexpr auto RWC_WEBCAM_CODEC_TYPE_NV12                 = detail::make_fourcc({'N', 'V', '1', '2'});
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_DEFAULT              = RWC_WEBCAM_CODEC_TYPE_MJPEG;
     static constexpr auto RWC_WEBCAM_TYPICAL_FRAMERATE               = 30u;
     static constexpr auto RWC_WEBCAM_STREAMING_BUFFER_COUNT          = 2u;
@@ -101,6 +102,7 @@ namespace rwc
         wait_error,
         driver_not_enough_buffers,
         cannot_decode_frame,
+        cannot_setup_gpu,
         query_capability_failed
     };
     
@@ -138,6 +140,23 @@ namespace rwc
         uint32_t unused;
     };
 
+    enum class hwd_decode_backend
+    {
+        none, 
+        gpu,
+        cpu
+    };
+
+    class RWC_API webcam_controller
+    {
+    public:
+        virtual std::optional<webcam_ctrl_property> read_property(webcam_property_type type) = 0;
+        virtual bool write_property(webcam_property_type type, int32_t value) = 0;
+        virtual bool write_property_default(webcam_property_type type) = 0;
+        virtual void reset_properties() = 0;
+        virtual ~webcam_controller() = default;
+    };
+
     class RWC_API webcam_device
     {
     public:
@@ -157,13 +176,10 @@ namespace rwc
 
         virtual bool set_current_format(const capture_format_info& format) = 0;
         virtual bool set_current_format_by_index(uint32_t index) = 0;
+        virtual bool set_preferred_decode_backend(hwd_decode_backend backend) = 0;
 
         // Device Capability Operations
-        [[nodiscard]]
-        virtual std::optional<webcam_ctrl_property> get_ctrl_property(webcam_property_type type) = 0;
-        virtual bool set_ctrl_property(webcam_property_type type, int32_t value) = 0;
-        virtual bool set_ctrl_property_default(webcam_property_type type) = 0;
-        virtual void reset_ctrl_properties() = 0;
+        virtual webcam_controller* ctrl() noexcept = 0;
 
         // Streaming Operations //
 

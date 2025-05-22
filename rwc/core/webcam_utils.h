@@ -30,11 +30,11 @@ namespace rwc
                 if (format.codec != codec)
                     continue;
 
-                auto value = std::invoke(proj, format);
+                auto&& value = std::invoke(proj, format);
                 if (!best_value || comp(value, *best_value))
                 {
                     best_format = format;
-                    best_value = std::move(value);
+                    best_value = std::forward<decltype(value)>(value);
                 }
             }
 
