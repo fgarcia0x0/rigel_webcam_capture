@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
+
+# vcpkg setup 
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+
 project(rigel-webcam-capture LANGUAGES CXX)
 
 option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" ON)
+option(ENABLE_TESTING "Enable building of tests" ON)
 
 set(RWC_BUILD_TYPE ${CMAKE_BUILD_TYPE})
 set(RWC_BASE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
@@ -40,3 +47,8 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_HOME_DIRECTORY}/bin/)
 
 add_subdirectory(${RWC_BASE_DIR}/rwc)
 add_subdirectory(${RWC_BASE_DIR}/rwc_app)
+
+if(ENABLE_TESTING)
+    enable_testing()
+    add_subdirectory(${RWC_BASE_DIR}/tests)
+endif()
