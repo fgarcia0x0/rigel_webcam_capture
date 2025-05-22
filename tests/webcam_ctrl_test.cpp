@@ -67,8 +67,11 @@ protected:
     {
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop_type));
         auto property = wcam->ctrl()->read_property(prop_type);
+
         if (property.has_value())
+        {
             ASSERT_EQ(property->value, property->default_value);
+        }
     }
 
 };
