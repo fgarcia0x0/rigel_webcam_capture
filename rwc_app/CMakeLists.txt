@@ -14,6 +14,11 @@ file(GLOB_RECURSE RWC_APP_SRC_FILES
 # create executable file
 add_executable(rwc_app ${RWC_APP_HDR_FILES} ${RWC_APP_SRC_FILES})
 
+# The test suite must be linked static
+if (MSVC AND RWC_ENABLE_STATIC_CRT)
+    set_target_properties(rwc_app PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # set cpp props
 target_compile_features(rwc_app PUBLIC cxx_std_23)
 

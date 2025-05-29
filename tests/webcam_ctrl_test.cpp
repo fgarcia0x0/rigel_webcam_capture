@@ -55,23 +55,55 @@ protected:
         return properties;
     }
 
-    static void webcam_assert_property_equals(rwc::webcam_property_type prop_type, int32_t new_value)
+    static inline void webcam_check_property_equals(rwc::webcam_property_type prop_type, int32_t new_value, bool assertion)
     {
         // read back and check
         auto new_property = wcam->ctrl()->read_property(prop_type);
-        ASSERT_TRUE(new_property.has_value());
-        ASSERT_EQ(new_property->value, new_value);
+
+        if (assertion)
+        {
+            ASSERT_TRUE(new_property.has_value());
+            ASSERT_EQ(new_property->value, new_value);
+        }
+        else 
+        {
+            EXPECT_TRUE(new_property.has_value());
+            EXPECT_EQ(new_property->value, new_value);
+        }
     }
 
-    static void webcam_assert_property_is_default(rwc::webcam_property_type prop_type) 
+    static inline void webcam_check_property_is_default(rwc::webcam_property_type prop_type, bool assertion) 
     {
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop_type));
         auto property = wcam->ctrl()->read_property(prop_type);
 
         if (property.has_value())
         {
-            ASSERT_EQ(property->value, property->default_value);
+            if (assertion)
+                ASSERT_EQ(property->value, property->default_value);
+            else
+                EXPECT_EQ(property->value, property->default_value);
         }
+    }
+
+    static inline void webcam_expect_property_equals(rwc::webcam_property_type prop_type, int32_t new_value)
+    {
+        webcam_check_property_equals(prop_type, new_value, false);
+    }
+
+    static inline void webcam_expect_property_is_default(rwc::webcam_property_type prop_type) 
+    {
+        webcam_check_property_is_default(prop_type, false);
+    }
+
+    static inline void webcam_assert_property_equals(rwc::webcam_property_type prop_type, int32_t new_value)
+    {
+        webcam_check_property_equals(prop_type, new_value, true);
+    }
+
+    static inline void webcam_assert_property_is_default(rwc::webcam_property_type prop_type) 
+    {
+        webcam_check_property_is_default(prop_type, true);
     }
 
 };
@@ -205,7 +237,7 @@ TEST_F(webcam_ctrl_test, write_basic_properties)
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop));
 
         auto property = wcam->ctrl()->read_property(prop);
-        ASSERT_TRUE(property.has_value());
+        EXPECT_TRUE(property.has_value());
 
         if (property->is_auto)
             continue;
@@ -215,12 +247,12 @@ TEST_F(webcam_ctrl_test, write_basic_properties)
         auto old_value = property->value;
         
         // write value to control
-        ASSERT_TRUE(wcam->ctrl()->write_property(prop, new_value));
+        EXPECT_TRUE(wcam->ctrl()->write_property(prop, new_value));
 
         // read back and check new value
-        webcam_assert_property_equals(prop, new_value);
-        ASSERT_TRUE(wcam->ctrl()->write_property(prop, old_value));
-        webcam_assert_property_equals(prop, old_value);
+        webcam_expect_property_equals(prop, new_value);
+        EXPECT_TRUE(wcam->ctrl()->write_property(prop, old_value));
+        webcam_expect_property_equals(prop, old_value);
     }
 }
 
@@ -237,7 +269,7 @@ TEST_F(webcam_ctrl_test, write_default_properties)
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop));
 
         auto property = wcam->ctrl()->read_property(prop);
-        ASSERT_TRUE(property.has_value());
+        EXPECT_TRUE(property.has_value());
 
         if (property->is_auto)
             continue;
@@ -247,14 +279,14 @@ TEST_F(webcam_ctrl_test, write_default_properties)
         auto default_value = property->default_value;
 
         // write value to control
-        ASSERT_TRUE(wcam->ctrl()->write_property_default(prop));
+        EXPECT_TRUE(wcam->ctrl()->write_property_default(prop));
 
         // read back and check if value == default_value
-        webcam_assert_property_equals(prop, default_value);
+        webcam_expect_property_equals(prop, default_value);
 
         // restore the value to old value
-        ASSERT_TRUE(wcam->ctrl()->write_property(prop, old_value));
-        webcam_assert_property_equals(prop, old_value);
+        EXPECT_TRUE(wcam->ctrl()->write_property(prop, old_value));
+        webcam_expect_property_equals(prop, old_value);
     }
 }
 
@@ -270,13 +302,13 @@ TEST_F(webcam_ctrl_test, reset_properties)
 
     // check if property is equals his defaults
     for (const auto& property : original_properties)
-        webcam_assert_property_is_default(property.type);
+        webcam_expect_property_is_default(property.type);
 
     // restore properties
     for (const auto& property : original_properties)
     {
-        ASSERT_TRUE(wcam->ctrl()->write_property(property.type, property.value));
-        webcam_assert_property_equals(property.type, property.value);
+        EXPECT_TRUE(wcam->ctrl()->write_property(property.type, property.value));
+        webcam_expect_property_equals(property.type, property.value);
     }
 }
 

@@ -8,15 +8,19 @@
     #error "Platform not supported"
 #endif
 
-#ifdef RWC_PLATFORM_WINDOWS
-    #ifdef RWC_EXPORTS
-        #define RWC_API __declspec(dllexport)
-    #else
-        #define RWC_API __declspec(dllimport)
-  #endif
-#elif defined(RWC_PLATFORM_LINUX) && (defined(__GNUC__) || defined(__clang__))
-    #ifdef RWC_EXPORTS
-        #define RWC_API __attribute__((visibility("default")))
+#ifdef RWC_BUILD_SHARED
+    #ifdef RWC_PLATFORM_WINDOWS
+        #if defined(RWC_EXPORTS)
+            #define RWC_API __declspec(dllexport)
+        #else
+            #define RWC_API __declspec(dllimport)
+        #endif
+    #elif defined(RWC_PLATFORM_LINUX) && (defined(__GNUC__) || defined(__clang__))
+        #if defined(RWC_EXPORTS)
+            #define RWC_API __attribute__((visibility("default")))
+        #else
+            #define RWC_API
+        #endif
     #else
         #define RWC_API
     #endif

@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(rwc_lib LANGUAGES CXX)
 
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 # create executable file
 add_library(rwc)
 
@@ -23,6 +21,12 @@ set_target_properties(rwc PROPERTIES PREFIX "")
 target_include_directories(rwc PUBLIC ${RWC_BASE_DIR})
 
 # compile definitions
+# Define RWC_STATIC when building as a static library
+if (BUILD_SHARED_LIBS)
+    set_target_properties(rwc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(rwc PUBLIC RWC_BUILD_SHARED)
+endif()
+
 target_compile_definitions(rwc PRIVATE RWC_EXPORTS)
 
 # print compiler name
