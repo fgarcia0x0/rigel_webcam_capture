@@ -17,7 +17,7 @@ namespace rwc
 
         template <typename Compare = std::greater<>, typename Projection = std::identity>
         static constexpr std::optional<capture_format_info> select_capture_format(std::span<const rwc::capture_format_info> formats,
-                                                                                  uint32_t codec,
+                                                                                  std::optional<uint32_t> codec,
                                                                                   Compare comp = {},
                                                                                   Projection proj = {})
         {
@@ -27,7 +27,7 @@ namespace rwc
 
             for (const auto& format : formats)
             {
-                if (format.codec != codec)
+                if (codec.has_value() && format.codec != codec.value())
                     continue;
 
                 auto&& value = std::invoke(proj, format);

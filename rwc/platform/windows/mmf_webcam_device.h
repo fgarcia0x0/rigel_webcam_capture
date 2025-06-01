@@ -50,7 +50,7 @@ namespace rwc
         virtual ~mmf_webcam_device() override;
     private:
         std::optional<webcam_device_info> read_device_info(uint32_t device_index, void* imf_device, void* source_reader);
-        std::vector<capture_format_info> read_webcam_formats(uint32_t device_index, void* source_reader);
+        std::vector<capture_format_info> read_webcam_formats(void* source_reader);
         webcam_error_status setup_webcam_image();
         void warmup_webcam(uint32_t warmup_frames);
         bool try_enable_hardware_decoding(void* attribs, void** d3d_device_out, void** d3d_device_ctx_out, void** dxgi_manager_out);

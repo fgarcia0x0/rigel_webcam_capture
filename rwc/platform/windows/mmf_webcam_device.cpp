@@ -33,6 +33,7 @@ using Microsoft::WRL::ComPtr;
 static auto RWC_DEFAULT_VIDEO_DECODING_FORMAT{ MFVideoFormat_NV12 };
 static constexpr auto RWC_STAGING_TEXTURE_POOL_SIZE{ 2u };
 static constexpr auto RWC_WEBCAM_WARMUP_FRAMECOUNT{ 2u };
+static constexpr auto RWC_VIDEO_STREAM_INDEX = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
 
 namespace rwc
 {
@@ -483,18 +484,18 @@ namespace rwc
         device_info.index = device_index;
 
         // read supported formats
-        device_info.formats = read_webcam_formats(device_index, source_reader);
+        device_info.formats = read_webcam_formats(source_reader);
         if (device_info.formats.empty())
             return std::nullopt;
 
         return device_info;
     }
 
-    static inline void read_media_types(IMFSourceReader* source_reader, uint32_t device_index, auto&& read_callback)
+    static inline void read_media_types(IMFSourceReader* source_reader, auto&& read_callback)
     {
         ComPtr<IMFMediaType> media_type_ptr{};
 
-        for (DWORD index{}; SUCCEEDED(source_reader->GetNativeMediaType(device_index, index, &media_type_ptr)); ++index) 
+        for (DWORD index{}; SUCCEEDED(source_reader->GetNativeMediaType(RWC_VIDEO_STREAM_INDEX, index, &media_type_ptr)); ++index) 
         {
             GUID subtype = {};
             uint32_t width = 0, height = 0, num = 0, den = 0;
@@ -523,11 +524,11 @@ namespace rwc
         }
     }
 
-    static ComPtr<IMFMediaType> find_media_type(IMFSourceReader* source_reader, uint32_t device_index, const capture_format_info& target_format)
+    static ComPtr<IMFMediaType> find_media_type(IMFSourceReader* source_reader, const capture_format_info& target_format)
     {
         ComPtr<IMFMediaType> out_media_type;
 
-        read_media_types(source_reader, device_index, [&out_media_type, &target_format](const auto& src_format, const auto& media_type) 
+        read_media_types(source_reader, [&out_media_type, &target_format](const auto& src_format, const auto& media_type) 
         {
             if (src_format == target_format)
             {
@@ -541,7 +542,7 @@ namespace rwc
         return out_media_type;
     }
     
-    std::vector<capture_format_info> mmf_webcam_device::read_webcam_formats(uint32_t device_index, void* source_reader)
+    std::vector<capture_format_info> mmf_webcam_device::read_webcam_formats(void* source_reader)
     {
         static constexpr uint32_t kPreAllocFormatsCount{ 32 };
         std::vector<capture_format_info> formats;
@@ -550,7 +551,7 @@ namespace rwc
         auto src_reader = reinterpret_cast<IMFSourceReader *>(source_reader);
 
         // read all medias types
-        read_media_types(src_reader, device_index, [&formats](auto format, const auto& /*media_type=*/) {
+        read_media_types(src_reader, [&formats](auto format, const auto& /*media_type=*/) {
             formats.push_back(std::move(format));
             return true;
         });
@@ -571,14 +572,14 @@ namespace rwc
         {
             capture_format_info target_format = m_current_format;
             target_format.codec = RWC_WEBCAM_CODEC_TYPE_NV12;
-            in_media_type = find_media_type(m_context->source_reader.Get(), m_context->device_index, target_format);
+            in_media_type = find_media_type(m_context->source_reader.Get(), target_format);
         }
 
         // if NV12 not exists or hardware accel is off, fallback
         if (!in_media_type)
         {
             RWC_LOG_WARN("Hardware device cannot do zero copy optimization with NV12");
-            in_media_type = find_media_type(m_context->source_reader.Get(), m_context->device_index, m_current_format);
+            in_media_type = find_media_type(m_context->source_reader.Get(), m_current_format);
             in_media_type->SetGUID(MF_MT_SUBTYPE, RWC_DEFAULT_VIDEO_DECODING_FORMAT);
         }
 
@@ -588,7 +589,7 @@ namespace rwc
             return webcam_error_status::cannot_set_image_format;
         }
 
-        auto hr = m_context->source_reader->SetCurrentMediaType(m_context->device_index, nullptr, in_media_type.Get());
+        auto hr = m_context->source_reader->SetCurrentMediaType(RWC_VIDEO_STREAM_INDEX, nullptr, in_media_type.Get());
         if (FAILED(hr)) 
         {
             RWC_LOG_ERROR("Failed to set media type (hr={})", hr);
@@ -723,12 +724,11 @@ namespace rwc
             ComPtr<IMFSample> sample = nullptr;
             HRESULT hr = S_OK;
 
-
             {
                 scoped_timer<milli_dbl> sample_timer{ "Acquire Frame" };
                 sample_timer.set_num_digits(2);
 
-                hr = m_context->source_reader->ReadSample(m_context->device_index, 0, &actual_stream_index, &stream_flags, &timestamp, &sample);
+                hr = m_context->source_reader->ReadSample(RWC_VIDEO_STREAM_INDEX, 0, &actual_stream_index, &stream_flags, &timestamp, &sample);
                 if (FAILED(hr))
                 {
                     m_last_frame_status = webcam_error_status::cannot_decode_frame;

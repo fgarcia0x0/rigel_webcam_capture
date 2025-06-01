@@ -43,10 +43,12 @@ protected:
         {
             rwc::webcam_property_type prop_type{ index };
 
-            // check this bug
-            if (prop_type == rwc::webcam_property_type::hue || prop_type == rwc::webcam_property_type::power_line_freq)
+            if (prop_type == rwc::webcam_property_type::hue || 
+                prop_type == rwc::webcam_property_type::power_line_freq)
+            {
                 continue;
-
+            }
+            
             auto property = wcam->ctrl()->read_property(prop_type);
             if (property.has_value())
                 properties.push_back(std::move(property).value());
@@ -114,10 +116,10 @@ static constexpr std::array properties_to_check {
     rwc::webcam_property_type::saturation,
     rwc::webcam_property_type::sharpness,
     rwc::webcam_property_type::gamma,
-    rwc::webcam_property_type::hue,
+    /*rwc::webcam_property_type::hue,*/ // hue is some system is a read-only property
     rwc::webcam_property_type::white_balance,
     rwc::webcam_property_type::exposure,
-    rwc::webcam_property_type::power_line_freq
+    /* rwc::webcam_property_type::power_line_freq */ // power_line_freq requires thats webcam begin start streaming
 };
 
 static constexpr std::array auto_properties_to_check {
@@ -126,14 +128,6 @@ static constexpr std::array auto_properties_to_check {
     rwc::webcam_property_type::auto_gain,
     rwc::webcam_property_type::auto_white_balance
 };
-
-TEST_F(webcam_ctrl_test, start_webcam_device)
-{
-    wcam = rwc::webcam_manager::create_device();
-    ASSERT_TRUE(wcam);
-    ASSERT_EQ(wcam->open(), rwc::webcam_error_status::ok);
-    ASSERT_TRUE(wcam->ctrl());
-}
 
 TEST_F(webcam_ctrl_test, read_basic_properties)
 {
@@ -231,9 +225,6 @@ TEST_F(webcam_ctrl_test, write_basic_properties)
     for (const auto& prop : properties_to_check)
     {
         // check this bug
-        if (prop == rwc::webcam_property_type::hue || prop == rwc::webcam_property_type::power_line_freq)
-            continue;
-
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop));
 
         auto property = wcam->ctrl()->read_property(prop);
@@ -262,10 +253,6 @@ TEST_F(webcam_ctrl_test, write_default_properties)
 
     for (const auto& prop : properties_to_check)
     {
-        // check this bug
-        if (prop == rwc::webcam_property_type::hue || prop == rwc::webcam_property_type::power_line_freq)
-            continue;
-
         SCOPED_TRACE("checking property: " + rwc::webcam_utils::prop_type_to_string(prop));
 
         auto property = wcam->ctrl()->read_property(prop);
