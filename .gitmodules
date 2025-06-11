@@ -1,0 +1,10 @@
+[submodule "vendor/SDL"]
+	path = vendor/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "vendor/imgui"]
+	path = vendor/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+[submodule "vendor/googletest"]
+	path = vendor/googletest
+	url = https://github.com/google/googletest.git
