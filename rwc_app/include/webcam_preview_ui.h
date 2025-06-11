@@ -24,7 +24,6 @@ struct webcam_preview_settings
     bool frame_border = false;
     float frame_round = 0.0f;
     float window_round = 0.0f;
-    float dpi_scale = 1.0f;
     bool hide_sidebar = false;
     bool window_always_on_top = false;
     bool keep_aspect_ratio = false;
@@ -57,10 +56,10 @@ public:
     static void finish_frame();
     static void shutdown();
     static const ImVec2& get_frame_buffer_scale();
+    static void reload_fonts_at_scale(float scale);
     
     static void set_canvas_loading(bool state);
     static bool is_canvas_loading();
-
     static void trigger_save_notification();
 
     // ui functions

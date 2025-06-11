@@ -1,7 +1,4 @@
 #include "rigel_app.h"
-#include "SDL3/SDL_oldnames.h"
-#include "SDL3/SDL_surface.h"
-#include "SDL3/SDL_video.h"
 #include "webcam_preview_ui.h"
 
 #include <rwc/core/webcam_device.hpp>
@@ -26,17 +23,6 @@
 #include <utility>
 
 static constexpr auto SDL_WINDOW_DELAY_MS = 50;
-
-static float get_window_device_pixel_ratio(SDL_Window* window) 
-{
-    int wp = {}, hp = {};
-    SDL_GetWindowSizeInPixels(window, &wp, &hp);
-
-    int w = {}, h = {};
-    SDL_GetWindowSize(window, &w, &h);
-
-    return float(wp) / w;
-}
 
 static std::unordered_map<renderer_api, std::string_view> s_renderer_api_map = 
 {
@@ -305,7 +291,6 @@ void rigel_app::setup_ui_settings()
         settings.frame_border = true;
         settings.frame_round = 4.0f;
         settings.window_round = 4.0f;
-        settings.dpi_scale = SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(m_window.get()));
         ui_settings_initialized = true;
     }
     
@@ -472,8 +457,8 @@ void rigel_app::process_events()
         }
         else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
         {
-            webcam_preview_ui::settings().dpi_scale = SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(m_window.get()));
-            webcam_preview_ui::update_settings();
+            float scale = SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(m_window.get()));
+            webcam_preview_ui::reload_fonts_at_scale(scale);
         }
     }
 }

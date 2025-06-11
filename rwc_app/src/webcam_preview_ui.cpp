@@ -67,6 +67,7 @@ struct toggle_button_settings
     float label_spacing = 0.5f;
 };
 
+[[maybe_unused]]
 static inline bool ToggleButton(const char* str_id, bool* value, const toggle_button_settings& settings = {})
 {
     ImVec4* colors = ImGui::GetStyle().Colors;
@@ -136,11 +137,11 @@ bool webcam_preview_ui::initialize(SDL_Window* window, SDL_Renderer* renderer)
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
 
-    io.Fonts->AddFontFromFileTTF("assets/fonts/FiraCode-Regular.ttf", 16.f, nullptr, io.Fonts->GetGlyphRangesJapanese());
-    io.FontAllowUserScaling = true;
-
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
+
+    // load font with default scale (1.0f)
+    webcam_preview_ui::reload_fonts_at_scale(1.0f);
 
     return true;
 }
@@ -150,7 +151,8 @@ void webcam_preview_ui::update_settings()
     if (m_frame_started)
         finish_frame();
 
-    ImGui::GetIO().FontGlobalScale = m_preview_settings.default_font_scale;
+    auto& io = ImGui::GetIO();
+    io.FontGlobalScale = m_preview_settings.default_font_scale;
 
     // update window properties
     auto& style = ImGui::GetStyle();
@@ -166,11 +168,6 @@ void webcam_preview_ui::update_settings()
         ImGui::StyleColorsDark();
     else
         ImGui::StyleColorsClassic();
-    
-    //ImGui::GetIO().Fonts->ClearFonts();
-    //ImGui::GetIO().Fonts->AddFontFromFileTTF("assets/fonts/FiraCode-Regular.ttf", std::round(16.0f * settings().dpi_scale));
-    //reload_font_at_scale();
-    style.ScaleAllSizes(settings().dpi_scale);
 }
 
 webcam_preview_settings& webcam_preview_ui::settings() noexcept
@@ -766,4 +763,22 @@ void webcam_preview_ui::trigger_save_notification()
 void webcam_preview_ui::on_webcam_properties_reseted(std::function<void()> callback)
 {
     m_webcam_reset_sig = std::move(callback);
+}
+
+void webcam_preview_ui::reload_fonts_at_scale(float scale)
+{
+    if (m_frame_started)
+        finish_frame();
+    
+    constexpr float font_base_size = 16.0f;
+    float new_size = std::roundf(font_base_size * scale);
+    auto& io = ImGui::GetIO();
+
+    io.Fonts->Clear();
+    io.Fonts->AddFontFromFileTTF("assets/fonts/FiraCode-Regular.ttf", new_size);
+
+    ImGui_ImplSDLRenderer3_DestroyFontsTexture();
+    ImGui_ImplSDLRenderer3_CreateFontsTexture();
+
+    ImGui::GetStyle().ScaleAllSizes(scale);
 }
