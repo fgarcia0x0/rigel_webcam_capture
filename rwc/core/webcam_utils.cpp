@@ -11,14 +11,8 @@ namespace rwc
         case webcam_property_type::exposure: 
             name += "exposure"; 
             break;
-        case webcam_property_type::auto_exposure:
-            name += "auto_exposure"; 
-            break;
         case webcam_property_type::focus:
             name += "focus"; 
-            break;
-        case webcam_property_type::auto_focus:
-            name += "auto_focus"; 
             break;
         case webcam_property_type::zoom:
             name += "zoom"; 
@@ -26,14 +20,8 @@ namespace rwc
         case webcam_property_type::white_balance:
             name += "white_balance"; 
             break;
-        case webcam_property_type::auto_white_balance:
-            name += "auto_white_balance"; 
-            break;
         case webcam_property_type::gain:
             name += "gain"; 
-            break;
-        case webcam_property_type::auto_gain:
-            name += "auto_gain"; 
             break;
         case webcam_property_type::brightness:
             name += "brightness"; 

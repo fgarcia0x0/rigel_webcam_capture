@@ -42,7 +42,7 @@ namespace rwc::utils
 
     static inline std::string format_log_message(const log_message& msg)
     {
-        constexpr const char* level_str[] = { "TRACE", "INFO", "DEBUG", "WARN", "ERROR", "CRITICAL" };
+        constexpr const char* level_str[] = { "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL" };
 
         std::string_view filename = msg.loc.file_name();
         std::string ts = rwc::utils::format_timestamp(msg.timestamp);

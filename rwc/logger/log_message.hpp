@@ -10,8 +10,8 @@ namespace rwc
     enum class log_level : uint32_t
     {
         trace,
-        info,
         debug,
+        info,
         warn,
         error,
         critical

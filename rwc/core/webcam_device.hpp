@@ -85,6 +85,7 @@ namespace rwc
         device_cannot_streaming,
         device_already_opened,
         cannot_set_image_format,
+        cannot_create_gpu_pipeline,
         cannot_create_buffer,
         cannot_setup_buffer,
         cannot_setup_decoder,
@@ -109,14 +110,10 @@ namespace rwc
     enum class webcam_property_type : uint32_t
     {
         exposure,
-        auto_exposure,
         focus,
-        auto_focus,
         zoom,
         white_balance,
-        auto_white_balance,
         gain,
-        auto_gain,
         brightness,
         contrast,
         saturation,
@@ -137,6 +134,7 @@ namespace rwc
         int32_t maximum;
         int32_t default_value;
         bool is_auto;
+        bool support_auto;
         uint32_t unused;
     };
 
@@ -151,7 +149,7 @@ namespace rwc
     {
     public:
         virtual std::optional<webcam_ctrl_property> read_property(webcam_property_type type) = 0;
-        virtual bool write_property(webcam_property_type type, int32_t value) = 0;
+        virtual bool write_property(webcam_property_type type, int32_t value, bool auto_prop = false) = 0;
         virtual bool write_property_default(webcam_property_type type) = 0;
         virtual void reset_properties() = 0;
         virtual ~webcam_controller() = default;

@@ -219,7 +219,7 @@ namespace rwc
         }
         else 
         {
-            RWC_LOG_WARN("Enabled hardware video decoding");
+            RWC_LOG_INFO("Enabled hardware video decoding");
         }
 
         hr = context->attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
@@ -417,14 +417,10 @@ namespace rwc
 
         auto status = setup_webcam_image();
         if (status != webcam_error_status::ok)
-            return status;
+            return webcam_error_status::cannot_set_image_format;
 
-        // discard first N frames to avoid delay
-        warmup_webcam(RWC_WEBCAM_WARMUP_FRAMECOUNT);
-
-        // create gpu pipeline
         if (m_context->has_hwd_acc && !try_create_gpu_pipeline())
-            return  webcam_error_status::cannot_setup_gpu;
+            return webcam_error_status::cannot_set_image_format;
 
         m_streaming = true;
         m_mmf_thread = std::make_unique<std::jthread>([this](auto token){ mmf_capture_thread(token); });
@@ -622,10 +618,6 @@ namespace rwc
                 if (FAILED(hr))
                     break;
 
-                RWC_LOG_INFO("hr = {}", hr);
-                RWC_LOG_INFO("sample = {}", sample ? "true" : "false");
-                RWC_LOG_INFO("flags = {}", flags);
-
                 ++frames_discarded;
 
             } while ((!sample && !(flags & MF_SOURCE_READERF_STREAMTICK)));
@@ -716,6 +708,9 @@ namespace rwc
     
     void mmf_webcam_device::mmf_capture_thread(std::stop_token token)
     {
+        // discard first N frames to avoid delay
+        warmup_webcam(RWC_WEBCAM_WARMUP_FRAMECOUNT);
+
         while (!token.stop_requested())
         {
             DWORD actual_stream_index = 0;
@@ -946,7 +941,7 @@ namespace rwc
     
     webcam_error_status mmf_webcam_device::gpu_frame_decode(void* sample, uint8_t* output)
     {
-        RWC_LOG_INFO("Using gpu frame decoding");
+        RWC_LOG_DEBUG("Using gpu frame decoding");
 
         auto& d3d11_context = m_context->hwd_ctx->d3d11_context;
         auto& input_tex = m_context->hwd_ctx->input_tex;
@@ -973,7 +968,7 @@ namespace rwc
         // Update input texture with frame data
         if (has_zero_copy)
         {
-            RWC_LOG_INFO("Using zero-copy optimization");
+            RWC_LOG_DEBUG("Using zero-copy optimization");
             hr = dxgi_buffer->GetResource(IID_ID3D11Texture2D, &input_tex);
             if (FAILED(hr))
                 return webcam_error_status::cannot_decode_frame;

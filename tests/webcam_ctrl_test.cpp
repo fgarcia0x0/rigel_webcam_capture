@@ -123,10 +123,10 @@ static constexpr std::array properties_to_check {
 };
 
 static constexpr std::array auto_properties_to_check {
-    rwc::webcam_property_type::auto_exposure,
-    rwc::webcam_property_type::auto_focus,
-    rwc::webcam_property_type::auto_gain,
-    rwc::webcam_property_type::auto_white_balance
+    rwc::webcam_property_type::exposure,
+    rwc::webcam_property_type::focus,
+    rwc::webcam_property_type::gain,
+    rwc::webcam_property_type::white_balance
 };
 
 TEST_F(webcam_ctrl_test, read_basic_properties)

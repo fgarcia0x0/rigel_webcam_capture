@@ -47,13 +47,7 @@ namespace rwc
             case webcam_property_type::exposure:
                 *out_id = PROPSETID_VIDCAP_CAMERACONTROL_WRAPPER;
                 return KSPROPERTY_CAMERACONTROL_EXPOSURE;
-            case webcam_property_type::auto_exposure:
-                *out_id = PROPSETID_VIDCAP_CAMERACONTROL_WRAPPER;
-                return KSPROPERTY_CAMERACONTROL_EXPOSURE;
             case webcam_property_type::focus:
-                *out_id = PROPSETID_VIDCAP_CAMERACONTROL_WRAPPER;
-                return KSPROPERTY_CAMERACONTROL_FOCUS;
-            case webcam_property_type::auto_focus:
                 *out_id = PROPSETID_VIDCAP_CAMERACONTROL_WRAPPER;
                 return KSPROPERTY_CAMERACONTROL_FOCUS;
             case webcam_property_type::zoom:
@@ -61,11 +55,7 @@ namespace rwc
                 return KSPROPERTY_CAMERACONTROL_ZOOM;
             case webcam_property_type::white_balance:
                 return KSPROPERTY_VIDEOPROCAMP_WHITEBALANCE;
-            case webcam_property_type::auto_white_balance:
-                return KSPROPERTY_VIDEOPROCAMP_WHITEBALANCE;
             case webcam_property_type::gain:
-                return KSPROPERTY_VIDEOPROCAMP_GAIN;
-            case webcam_property_type::auto_gain:
                 return KSPROPERTY_VIDEOPROCAMP_GAIN;
             case webcam_property_type::brightness:
                 return KSPROPERTY_VIDEOPROCAMP_BRIGHTNESS;
@@ -142,7 +132,7 @@ namespace rwc
         hr = iks_ctrl->KsProperty(pks_prop, sizeof(ks_prop), &ks_mem_list, sizeof(ks_mem_list), &ret_code);
         if (FAILED(hr))
         {
-            RWC_LOG_ERROR("Failed to get control range for {} (hr={:08x})", std::to_underlying(type), hr);
+            RWC_LOG_WARN("Failed to get control range for {} (hr={:08x})", std::to_underlying(type), hr);
             return std::nullopt;
         }
 
@@ -150,7 +140,7 @@ namespace rwc
         hr = iks_ctrl->KsProperty(pks_prop, sizeof(ks_prop), &ks_default_value, sizeof(ks_default_value), &ret_code);
         if (FAILED(hr))
         {
-            RWC_LOG_ERROR("Failed to get control default values (hr={:08x})", hr);
+            RWC_LOG_WARN("Failed to get control default values (hr={:08x})", hr);
             return std::nullopt;
         }
 
@@ -160,7 +150,7 @@ namespace rwc
         hr = iks_ctrl->KsProperty(pks_prop, sizeof(ks_prop), &ks_prop, sizeof(ks_prop), &ret_code);
         if (FAILED(hr))
         {
-            RWC_LOG_ERROR("Failed to get control value (hr={:08x})", hr);
+            RWC_LOG_WARN("Failed to get control value (hr={:08x})", hr);
             return std::nullopt;
         }
 
@@ -172,16 +162,14 @@ namespace rwc
             .maximum = static_cast<int32_t>(ks_mem_list.step.Bounds.SignedMaximum),
             .default_value = ks_default_value.value,
             .is_auto = !!(ks_prop.Flags & KSPROPERTY_CAMERACONTROL_FLAGS_AUTO),
+            .support_auto = !!(ks_prop.Capabilities & KSPROPERTY_CAMERACONTROL_FLAGS_AUTO),
             .unused = 0
         };
-
-        [[maybe_unused]]
-        bool prop_support_auto = !!(ks_prop.Capabilities & KSPROPERTY_CAMERACONTROL_FLAGS_AUTO);
 
         return result;
     }
     
-    bool mmf_webcam_controller::write_property(webcam_property_type type, int32_t value)
+    bool mmf_webcam_controller::write_property(webcam_property_type type, int32_t value, bool auto_prop)
     {
         HRESULT hr = S_OK;
         GUID prop_set = {};
@@ -196,21 +184,13 @@ namespace rwc
         ks_prop.Property.Set = prop_set;
         ks_prop.Property.Id = prop_id.value();
         ks_prop.Property.Flags = KSPROPERTY_TYPE_SET;
-        ks_prop.Value = value;
 
-        switch (type) 
-        {
-            case webcam_property_type::auto_exposure:
-            case webcam_property_type::auto_focus:
-            case webcam_property_type::auto_white_balance:
-            case webcam_property_type::auto_gain:
-                ks_prop.Flags = KSPROPERTY_CAMERACONTROL_FLAGS_AUTO;
-                break;
-            default:
-                ks_prop.Flags = KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL;
-                break;
-        }
+        if (auto_prop)
+            ks_prop.Flags = KSPROPERTY_CAMERACONTROL_FLAGS_AUTO;
+        else    
+            ks_prop.Flags = KSPROPERTY_CAMERACONTROL_FLAGS_MANUAL;
 
+        ks_prop.Value = auto_prop ? !!value : value;
         hr = m_context->iks_ctrl->KsProperty(pks_prop, sizeof(ks_prop), &ks_prop, sizeof(ks_prop), &ret_code);
         if (FAILED(hr))
         {
@@ -227,7 +207,7 @@ namespace rwc
         if (!prop)
             return false;
 
-        return write_property(type, prop->default_value);
+        return write_property(type, prop->default_value, prop->support_auto);
     }
     
     void mmf_webcam_controller::reset_properties()

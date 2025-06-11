@@ -24,7 +24,7 @@ namespace rwc
 
         // Ctrl Operations
         std::optional<webcam_ctrl_property> read_property(webcam_property_type type) override;
-        bool write_property(webcam_property_type type, int32_t value) override;
+        bool write_property(webcam_property_type type, int32_t value, bool auto_prop) override;
         bool write_property_default(webcam_property_type type) override;
         void reset_properties() override;
 
