@@ -63,6 +63,7 @@ private:
 
 protected:
     void renderer_changed_handler(size_t renderer_index);
+    void aot_changed_handler(bool state);
     void webcam_device_changed_handler(size_t device_index);
     void webcam_format_changed_handler(size_t format_index);
     void webcam_resolution_changed(size_t res_index);
@@ -70,14 +71,17 @@ protected:
     void vsync_changed_handler(size_t vsync_index);
     void webcam_property_changed_handler(const rwc::webcam_ctrl_property& property);
     void webcam_properties_reseted_handler();
+    void ui_font_size_changed(float new_value);
+    void webcam_image_horflip_changed(bool state);
 private:
+    std::shared_ptr<rwc::webcam_device> m_webcam_device;
     std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> m_window;
     std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)> m_renderer;
     std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> m_texture;
-    std::shared_ptr<rwc::webcam_device> m_webcam_device;
     rigel_app_specs m_app_specs;
     task_queue m_task_queue;
     bool m_running = true;
     bool m_webcam_vsync = false;
     bool m_draw_frame = false;
+    bool m_image_flipped = false;
 };

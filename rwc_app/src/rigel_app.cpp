@@ -184,6 +184,11 @@ bool rigel_app::initialize_context()
 void rigel_app::shutdown_context()
 {
     ImGui::DestroyContext();
+
+    m_texture.reset();
+    m_renderer.reset();
+    m_window.reset();
+    
     SDL_Quit();
 }
 
@@ -326,16 +331,26 @@ bool rigel_app::setup_webcam_device(size_t device_index)
     return true;
 }
 
+template <typename... Args>
+static inline void dispatch_event(ui_event_type ev, auto* this_ptr, auto&& method)
+{
+    webcam_preview_ui::dispatch(ev, [this_ptr, method](Args... args) {
+        std::invoke(method, this_ptr, std::forward<Args>(args)...);
+    });
+};
+
 void rigel_app::setup_signal_handlers()
 {
-    webcam_preview_ui::on_renderer_changed([this](size_t index){ renderer_changed_handler(index); });
-    webcam_preview_ui::on_always_on_top_changed([this](bool state){ SDL_SetWindowAlwaysOnTop(m_window.get(), state); });
-    webcam_preview_ui::on_webcam_device_changed([this](size_t index){ webcam_device_changed_handler(index); });
-    webcam_preview_ui::on_format_changed([this](size_t index){ webcam_format_changed_handler(index); });
-    webcam_preview_ui::on_resolution_changed([this](size_t index){ webcam_resolution_changed(index); });
-    webcam_preview_ui::on_vsync_changed([this](size_t index){ vsync_changed_handler(index); });
-    webcam_preview_ui::on_webcam_property_changed([this](const auto& prop){ webcam_property_changed_handler(prop); });
-    webcam_preview_ui::on_webcam_properties_reseted([this](){ webcam_properties_reseted_handler(); });
+    dispatch_event<size_t>(ui_event_type::renderer_changed, this, &rigel_app::renderer_changed_handler);
+    dispatch_event<bool>(ui_event_type::always_on_top, this, &rigel_app::aot_changed_handler);
+    dispatch_event<size_t>(ui_event_type::webcam_device_changed, this, &rigel_app::webcam_device_changed_handler);
+    dispatch_event<size_t>(ui_event_type::webcam_format_changed, this, &rigel_app::webcam_format_changed_handler);
+    dispatch_event<size_t>(ui_event_type::webcam_resolution_changed, this, &rigel_app::webcam_resolution_changed);
+    dispatch_event<size_t>(ui_event_type::vsync_changed, this, &rigel_app::vsync_changed_handler);
+    dispatch_event<const rwc::webcam_ctrl_property&>(ui_event_type::webcam_property_changed, this, &rigel_app::webcam_property_changed_handler);
+    dispatch_event(ui_event_type::webcam_reset_changed, this, &rigel_app::webcam_properties_reseted_handler);
+    dispatch_event<float>(ui_event_type::font_size_changed, this, &rigel_app::ui_font_size_changed);
+    dispatch_event<bool>(ui_event_type::webcam_enable_hor_flip, this, &rigel_app::webcam_image_horflip_changed);
 }
 
 bool rigel_app::create_texture(int width, int height, uint32_t pixel_format)
@@ -362,7 +377,9 @@ int rigel_app::run()
     if (m_app_specs.width <= 0 || m_app_specs.height <= 0)
         choose_window_size(0.75f, &m_app_specs.width, &m_app_specs.height);
 
+    // setup ui events callbacks
     setup_signal_handlers();
+
     if (!build_render_pipeline(s_renderer_api_map[m_app_specs.render_api]))
     {
         RWC_LOG_ERROR("Failed to build render pipeline for renderer: {}", s_renderer_api_map[m_app_specs.render_api]);
@@ -378,6 +395,9 @@ int rigel_app::run()
     while (m_running)
     {
         process_events();
+        if (!m_running)
+            break;
+
         m_task_queue.process_tasks();
 
         // don't render if the window is not visible
@@ -387,7 +407,6 @@ int rigel_app::run()
             continue;
         }
 
-        webcam_preview_ui::update_ui();
         process_webcam_frame();
         render_frame();
     }
@@ -457,7 +476,7 @@ void rigel_app::process_events()
         }
         else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
         {
-            float scale = SDL_GetDisplayContentScale(SDL_GetDisplayForWindow(m_window.get()));
+            float scale = SDL_GetWindowDisplayScale(m_window.get());
             webcam_preview_ui::reload_fonts_at_scale(scale);
         }
     }
@@ -489,6 +508,9 @@ void rigel_app::render_frame()
     if (m_webcam_vsync && !m_draw_frame)
         return;
 
+    // update UI
+    webcam_preview_ui::update_ui();
+
     const auto& fb_scale = webcam_preview_ui::get_frame_buffer_scale();
     SDL_SetRenderScale(m_renderer.get(), fb_scale.x, fb_scale.y);
     SDL_SetRenderDrawColor(m_renderer.get(), 50, 50, 50, SDL_ALPHA_OPAQUE);
@@ -505,7 +527,12 @@ void rigel_app::render_frame()
     }
 
     if (m_texture && !webcam_preview_ui::is_canvas_loading())
-        SDL_RenderTexture(m_renderer.get(), m_texture.get(), nullptr, dst_rect_ptr);
+    {
+        if (m_image_flipped)
+            SDL_RenderTextureRotated(m_renderer.get(), m_texture.get(), nullptr, dst_rect_ptr, 180, nullptr, SDL_FLIP_VERTICAL);
+        else
+            SDL_RenderTexture(m_renderer.get(), m_texture.get(), nullptr, dst_rect_ptr);
+    }
 
     webcam_preview_ui::render(m_renderer.get());
     SDL_RenderPresent(m_renderer.get());
@@ -530,16 +557,26 @@ void rigel_app::save_frame_to_file(std::string_view filepath)
 
 void rigel_app::renderer_changed_handler(size_t renderer_index)
 {
-    std::string_view renderer_name = webcam_preview_ui::settings().render_apis[renderer_index];
-    
-    if (!build_render_pipeline(renderer_name))
-    {
-        RWC_LOG_ERROR("Failed to build render pipeline for renderer: {}", renderer_name);
-        std::exit(EXIT_FAILURE);
-    }
+    auto& renderer_apis = webcam_preview_ui::settings().render_apis;
 
-    create_webcam_texture();
-    RWC_LOG_INFO("Renderer changed to: {}", renderer_name);
+    if (!renderer_apis.empty())
+    {
+        std::string_view renderer_name = webcam_preview_ui::settings().render_apis[renderer_index];
+    
+        if (!build_render_pipeline(renderer_name))
+        {
+            RWC_LOG_ERROR("Failed to build render pipeline for renderer: {}", renderer_name);
+            std::exit(EXIT_FAILURE);
+        }
+
+        create_webcam_texture();
+        RWC_LOG_INFO("Renderer changed to: {}", renderer_name);
+    }
+}
+
+void rigel_app::aot_changed_handler(bool state)
+{
+    SDL_SetWindowAlwaysOnTop(m_window.get(), state);
 }
 
 bool rigel_app::build_render_pipeline(std::string_view renderer_name)
@@ -564,6 +601,7 @@ void rigel_app::setup_ui_data()
     // setup renderer APIs
     auto& settings = webcam_preview_ui::settings();
     auto& render_apis = settings.render_apis;
+    render_apis.clear();
     for (auto&& renderer : sdl_get_available_renderers())
     {
         render_apis.push_back(std::move(renderer));
@@ -638,7 +676,7 @@ void rigel_app::webcam_resolution_changed(size_t res_index)
 
     auto new_format_info = m_webcam_device->current_format();
     new_format_info.width = res_width;
-    new_format_info.height = res_height;
+    new_format_info.height = res_height; 
 
     change_webcam_capture_format(new_format_info);
 }
@@ -741,6 +779,7 @@ void rigel_app::update_webcam_properties()
 
 void rigel_app::webcam_property_changed_handler(const rwc::webcam_ctrl_property& property)
 {
+    // propagate exception
     m_webcam_device->ctrl()->write_property(property.type, property.value, property.is_auto);
 }
 
@@ -754,4 +793,14 @@ void rigel_app::webcam_properties_reseted_handler()
                   update_webcam_properties(); 
                   webcam_preview_ui::set_canvas_loading(false); }
     );
+}
+
+void rigel_app::ui_font_size_changed(float new_value)
+{
+    m_task_queue.push_task([](){}, std::bind_front(webcam_preview_ui::reload_fonts_at_scale, new_value));
+}
+
+void rigel_app::webcam_image_horflip_changed(bool state)
+{
+    m_image_flipped = state;
 }

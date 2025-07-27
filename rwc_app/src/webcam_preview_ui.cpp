@@ -1,8 +1,10 @@
 #include "webcam_preview_ui.h"
-#include "imgui_internal.h"
+#include "SDL3/SDL_mouse.h"
+#include "icons_fork_awesome.hpp"
 #include "rwc/core/webcam_device.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
 #include <imgui_impl_sdlgpu3.h>
@@ -17,8 +19,10 @@
 #include <cstdint>
 #include <numbers>
 
+#include "fonts.hpp"
+#include "icons_fork_awesome.hpp"
+
 static bool s_need_update_renderer = false;
-static std::vector<std::string> s_plf_values = { "None", "50Hz", "60Hz" };
 
 bool MakeCollapsingHeader(const char* label)
 {
@@ -79,7 +83,19 @@ static inline bool ToggleButton(const char* str_id, bool* value, const toggle_bu
     float rect_radius = height * settings.rect_radius;
     float circle_radius = height * settings.circle_radius;
 
-    ImGui::InvisibleButton(str_id, ImVec2(width, height));
+    std::string_view label = str_id;
+    size_t pos = label.find_first_of('#');
+    if (pos != std::string_view::npos)
+        label = label.substr(0, pos);
+    else
+        pos = label.size();
+
+    ImVec2 rect_pos(cursor_pos.x + width, cursor_pos.y + height);
+    ImVec2 text_size = ImGui::CalcTextSize(label.data(), label.data() + pos);
+    ImVec2 text_pos = ImVec2(rect_pos.x + (settings.label_spacing * height), cursor_pos.y + (height - text_size.y) * 0.4f);
+    ImRect total_bb(cursor_pos, ImVec2(text_pos.x + text_size.x, cursor_pos.y + height));
+
+    ImGui::InvisibleButton(str_id, ImVec2(total_bb.GetWidth(), total_bb.GetHeight()));
     bool item_clicked = ImGui::IsItemClicked();
     if (item_clicked) 
         *value = !*value;
@@ -93,7 +109,6 @@ static inline bool ToggleButton(const char* str_id, bool* value, const toggle_bu
         time = *value ? (time_anim) : (1.0f - time_anim);
     }
 
-    ImVec2 rect_pos(cursor_pos.x + width, cursor_pos.y + height);
     ImVec2 circle_pos(cursor_pos.x + circle_radius + time * (width - circle_radius * 2.0f), cursor_pos.y + circle_radius);
 
     if (ImGui::IsItemHovered())
@@ -102,25 +117,9 @@ static inline bool ToggleButton(const char* str_id, bool* value, const toggle_bu
         draw_list->AddRectFilled(cursor_pos, rect_pos, ImGui::GetColorU32(*value ? colors[ImGuiCol_ButtonHovered] : colors[ImGuiCol_Border]), rect_radius);
     
     draw_list->AddCircleFilled(circle_pos, circle_radius - 1.5f, settings.circle_color);
-    
-    std::string_view label = str_id;
-    size_t pos = label.find_first_of('#');
-    if (pos != std::string_view::npos)
-        label = label.substr(0, pos);
-    else
-        pos = label.size();
 
     if (!label.empty())
-    {
-        ImVec2 text_size = ImGui::CalcTextSize(label.data(), label.data() + pos);
-        ImVec2 text_pos = ImVec2(rect_pos.x + (settings.label_spacing * height), cursor_pos.y + (height - text_size.y) * 0.4f);
         draw_list->AddText(text_pos, settings.text_color, label.data(), label.data() + pos);
-
-        // Extend the item bounding box to include the label
-        ImRect total_bb(cursor_pos, ImVec2(text_pos.x + text_size.x, cursor_pos.y + height));
-        ImGui::ItemSize(total_bb); // Makes it part of the layout
-        ImGui::ItemAdd(total_bb, ImGui::GetItemID());
-    }
 
     return item_clicked;
 }
@@ -348,23 +347,24 @@ void webcam_preview_ui::update_ui()
 
     if (!m_preview_settings.hide_sidebar && !is_canvas_loading())
     {
+        static ImVec2 last_window_size = {};
+
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         const float sidebar_base_width = 400;
         ImGui::SetNextWindowSize({ scaled_width(sidebar_base_width), viewport->WorkSize.y });
+
+        // Calculate the position before creating the window
+        ImVec2 viewport_pos = viewport->WorkPos;
+        ImVec2 viewport_size = viewport->WorkSize;
+        ImVec2 window_pos = ImVec2(viewport_pos.x + viewport_size.x - last_window_size.x, viewport_pos.y);
+        ImGui::SetNextWindowPos(window_pos);
         
         auto sidebar_flags =  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
-
         if (ImGui::Begin("Rigel Webcam Capture - Use Ctrl+H to hide the sidebar", nullptr, sidebar_flags))
         {
-            // Now we can query the window size
-            ImVec2 window_size = ImGui::GetWindowSize();
-            ImVec2 viewport_pos = viewport->WorkPos;
-            ImVec2 viewport_size = viewport->WorkSize;
+            last_window_size = ImGui::GetWindowSize();
 
-            // Move to right edge
-            ImGui::SetWindowPos(ImVec2(viewport_pos.x + viewport_size.x - window_size.x, viewport_pos.y));
-
-            if (ImGui::CollapsingHeader("Window Settings", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader(ICON_FK_WINDOW_RESTORE " Window Settings", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 make_vertical_separator(0.2f);
                 create_window_section();
@@ -372,7 +372,7 @@ void webcam_preview_ui::update_ui()
 
             make_vertical_separator(0.2f);
 
-            if (ImGui::CollapsingHeader("Webcam Settings", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader(ICON_FK_CAMERA " Webcam Settings", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 make_vertical_separator(0.2f);
                 create_webcam_settings_section();
@@ -380,15 +380,73 @@ void webcam_preview_ui::update_ui()
 
             make_vertical_separator(0.2f);
 
-            if (ImGui::CollapsingHeader("Webcam Controls", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader(ICON_FK_BRIEFCASE " Webcam Controls", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 make_vertical_separator(0.2f);
                 create_webcam_controls_section();
             }
 
             make_vertical_separator(0.2f);
-            create_frametime_section();
+
+            if (ImGui::CollapsingHeader(ICON_FK_LINE_CHART " Frametime", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                make_vertical_separator(0.2f);
+                create_frametime_section();
+            }
         }
+
+        ImGui::End();
+    }
+
+    if (m_show_framerate_overlay)
+    {
+        static float last_update = 0.0f;
+        static float accumulator = 0.0f;
+        static size_t frame_count = 0;
+        static float framerate = 0.0f;
+        static float avg_framerate = 0.0f;
+
+        static float history[128] = {};
+        static size_t index = 0;
+
+        // Time since last update
+        float current_time = float(ImGui::GetTime());
+        float delta_time = current_time - last_update;
+
+        float fps = ImGui::GetIO().Framerate;
+        accumulator += fps;
+        frame_count++;
+
+        // Update every 1 second
+        if (delta_time >= 1.0f)
+        {
+            avg_framerate = accumulator / frame_count;
+            framerate = ImGui::GetIO().Framerate;
+            last_update = current_time;
+            accumulator = 0.0f;
+            frame_count = 0;
+        }
+
+        history[index] = fps;
+        index = (index + 1) % std::size(history);
+
+        // Compute dynamic min/max from history
+        float range_min = 0.0f;
+        float range_max = 240.0f;
+
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings;
+        ImVec2 window_pos = ImVec2(ImGui::GetStyle().DisplayWindowPadding);
+        ImVec2 window_pos_pivot = ImVec2(0.0f, 0.0f);
+        
+        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+        ImGui::SetNextWindowBgAlpha(m_overlay_opacity);
+        
+        ImGui::Begin("FPS Overlay", nullptr, flags);
+        ImGui::Text("Frame Rate: %u fps", uint32_t(std::roundf(framerate)));
+        ImGui::Text("Frame Time: %.2f ms", 1000.0f / avg_framerate);
+
+        make_vertical_separator(0.2f);
+        ImGui::PlotLines("##frame_time_graph", history, int(std::size(history)), int(index), nullptr, range_min, range_max);
 
         ImGui::End();
     }
@@ -400,7 +458,7 @@ void webcam_preview_ui::update_ui()
 
         if (elapsed < 1.5f)
         {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(0, 230, 0, 0.50f * 255));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetColorU32(ImGuiCol_WindowBg, 0.7f));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
             ImVec2 viewportPos = ImGui::GetMainViewport()->GetCenter();
@@ -419,17 +477,12 @@ void webcam_preview_ui::update_ui()
             ImGui::PopStyleVar();
             ImGui::PopStyleColor();
 
-            //ImGui::SetWindowFontScale(1.8f);
+            const char* title = "Frame captured and saved successfully !";
+            ImVec2 text_size = ImGui::CalcTextSize(title);
+            float xpadding = (viewportSize.x - text_size.x * 2.0f) * 0.5f;
+            float ypadding = (viewportSize.y - text_size.y * 2.0f) * 0.5f;
 
-            // Center the text horizontally
-            float textWidth = ImGui::CalcTextSize("Frame captured and saved successfully !").x;
-            float textHeight = ImGui::CalcTextSize("Frame captured and saved successfully !").y;
-            float xpadding = (viewportSize.x - textWidth*2.0f) * 0.5f;
-            float ypadding = (viewportSize.y - textHeight*2.0f) * 0.5f;
-            //ImGui::SetCursorPosX(padding);
-
-            DrawTextWithBorder(ImGui::GetForegroundDrawList(), ImVec2(xpadding, ypadding), IM_COL32(255, 255, 255, 255), IM_COL32(0, 0, 0, 255), "Frame captured and saved successfully !", 1.8f);
-            //ImGui::Text("Frame captured and saved successfully !");
+            DrawTextWithBorder(ImGui::GetForegroundDrawList(), ImVec2(xpadding, ypadding), IM_COL32(255, 255, 255, 255), IM_COL32(0, 0, 0, 255), title, 1.8f);
             ImGui::End();
         }
         else 
@@ -441,8 +494,7 @@ void webcam_preview_ui::update_ui()
     if (s_need_update_renderer)
     {
         s_need_update_renderer = false;
-        if (m_renderer_changed_sig)
-            m_renderer_changed_sig(m_preview_settings.selected_render_api);
+        notify<size_t>(ui_event_type::renderer_changed, m_preview_settings.selected_render_api);
     }
 
     if (is_canvas_loading())
@@ -488,10 +540,7 @@ void webcam_preview_ui::create_window_section()
 
     ImGui::SameLine();
     if (ImGui::Checkbox("Always on top", &m_preview_settings.window_always_on_top))
-    {
-        if (m_aot_sig)
-            m_aot_sig(m_preview_settings.window_always_on_top);
-    }
+        notify<bool>(ui_event_type::always_on_top, m_preview_settings.window_always_on_top);
 
     make_vertical_separator(0.5f);
 
@@ -515,27 +564,27 @@ void webcam_preview_ui::create_window_section()
 
     if (ImGui::RadioButton("No VSync", &refresh_rate_type, RefreshRateType::RR_NO_VSYNC))
     {
-        m_vsync_changed_sig(0);
+        notify<size_t>(ui_event_type::vsync_changed, 0);
     }
 
     ImGui::SameLine();
     if (ImGui::RadioButton("Webcam VSync", &refresh_rate_type, RefreshRateType::RR_WEBCAM_VSYNC))
     {
-        m_vsync_changed_sig(1);
+        notify<size_t>(ui_event_type::vsync_changed, 1);
     }
 
     ImGui::SameLine();
     if (ImGui::RadioButton("Screen VSync", &refresh_rate_type, RefreshRateType::RR_SCREEN_VSYNC))
     {
-        m_vsync_changed_sig(2);
+        notify<size_t>(ui_event_type::vsync_changed, 2);
     }
 
     make_vertical_separator(0.5f);
-    ImGui::Text("Font Scale: ");
+    ImGui::Text("Font Config: ");
+    make_vertical_separator(0.1f);
 
-    static int percentage = static_cast<int>(m_preview_settings.default_font_scale * 100.0f);
-    if (ImGui::DragInt("##drag-font-scale", &percentage, 1.0f, 50, 300, "%d%%", ImGuiSliderFlags_AlwaysClamp))
-        m_preview_settings.default_font_scale = ImGui::GetIO().FontGlobalScale = percentage / 100.0f;
+    if (ImGui::DragFloat("##FontSize", &settings().curr_font_size, 1.0f, 10.0f, 80.0f, "Font Size: %.0fpx", ImGuiSliderFlags_AlwaysClamp))
+        notify<float>(ui_event_type::font_size_changed, settings().curr_font_size / BaseFontSize);
 }
 
 void webcam_preview_ui::create_webcam_settings_section()
@@ -545,7 +594,7 @@ void webcam_preview_ui::create_webcam_settings_section()
 
     if (show_combobox("##combo_webcam_device", settings.webcam_devices, settings.selected_webcam_device))
     {
-        m_wdc_sig(settings.selected_webcam_device);
+        notify<size_t>(ui_event_type::webcam_device_changed, settings.selected_webcam_device);
     }
 
     ImGui::Dummy(ImVec2(0.0f, 5.0f));
@@ -553,8 +602,7 @@ void webcam_preview_ui::create_webcam_settings_section()
     ImGui::Text("Select Resolution: ");
     if (show_combobox("##combo_resolution", settings.resolution_labels, settings.selected_resolution))
     {
-        if (m_resolution_changed_sig)
-            m_resolution_changed_sig(settings.selected_resolution);
+        notify<size_t>(ui_event_type::webcam_resolution_changed, settings.selected_resolution);
     }
 
     ImGui::Dummy(ImVec2(0.0f, 5.0f));
@@ -562,8 +610,7 @@ void webcam_preview_ui::create_webcam_settings_section()
     ImGui::Text("Select Format: ");
     if (show_combobox("##combo_format", settings.format_labels, settings.selected_format))
     {
-        if (m_format_changed_sig)
-            m_format_changed_sig(settings.selected_format);
+        notify<size_t>(ui_event_type::webcam_format_changed, settings.selected_format);
     }
 
     ImGui::Dummy(ImVec2(0.0f, 5.0f));
@@ -571,8 +618,13 @@ void webcam_preview_ui::create_webcam_settings_section()
     ImGui::Text("Select FPS: ");
     if (show_combobox("##combo_fps", settings.fps_labels, settings.selected_fps))
     {
-        if (m_fps_changed_sig)
-            m_fps_changed_sig(settings.selected_fps);
+        notify<size_t>(ui_event_type::webcam_fps_changed, settings.selected_fps);
+    }
+
+    ImGui::Dummy(ImVec2(0.0f, 5.0f));
+    if (ToggleButton("Horizontal Flip", &settings.enable_hor_flip))
+    {
+        notify<bool>(ui_event_type::webcam_enable_hor_flip, settings.enable_hor_flip);
     }
 }
 
@@ -603,17 +655,20 @@ void webcam_preview_ui::create_webcam_controls_section()
             ImGui::TableSetColumnIndex(1);
             bool trigger_item_action = false;
             std::string id = "##webcam_prop_" + std::to_string(i);
+            const char* slider_fmt = "%d";
+            auto slider_flags = ImGuiSliderFlags_ClampOnInput;
 
             if (webcam_props[i].type == rwc::webcam_property_type::power_line_freq)
             {
-                if (show_combobox(id.c_str(), s_plf_values, webcam_props[i].value))
-                    trigger_item_action = true;
+                constexpr size_t plf_mode_count = 3;
+                constexpr const char* plf_names[plf_mode_count] = { "None", "50Hz", "60Hz" };
+                int32_t value = webcam_props[i].value;
+                slider_fmt = (value >= 0 && value < plf_mode_count) ? plf_names[value] : "Unknown";
+                slider_flags = ImGuiSliderFlags_NoInput;
             }
-            else 
-            {
-                if (ImGui::SliderInt(id.c_str(), &webcam_props[i].value, webcam_props[i].minimum, webcam_props[i].maximum))
-                    trigger_item_action = true;
-            }
+
+            if (ImGui::SliderInt(id.c_str(), &webcam_props[i].value, webcam_props[i].minimum, webcam_props[i].maximum, slider_fmt, slider_flags))
+                trigger_item_action = true;
 
             if (webcam_props[i].is_auto)
                 ImGui::EndDisabled();
@@ -625,13 +680,12 @@ void webcam_preview_ui::create_webcam_controls_section()
             ImGui::TableSetColumnIndex(2);
             std::string check_id = "auto##auto" + std::to_string(i);
 
-            if (ImGui::Checkbox(check_id.c_str(), &webcam_props[i].is_auto))
+            if (ToggleButton(check_id.c_str(), &webcam_props[i].is_auto))
                 trigger_item_action = true;
 
             if (trigger_item_action)
             {
-                if (m_webcam_property_changed_sig)
-                    m_webcam_property_changed_sig(webcam_props[i]);
+                notify<const rwc::webcam_ctrl_property&>(ui_event_type::webcam_property_changed, webcam_props[i]);
             }
 
             if (!webcam_props[i].support_auto)
@@ -641,9 +695,9 @@ void webcam_preview_ui::create_webcam_controls_section()
         ImGui::EndTable();
     }
 
-    const char* text = "Reset all controls";
-    float buttonWidth = ImGui::CalcTextSize(text).x + ImGui::GetStyle().FramePadding.x * 4;
-    float buttonHeight = ImGui::CalcTextSize(text).y + ImGui::GetStyle().FramePadding.y * 4;
+    const std::string text = std::format("{} Reset Controls", ICON_FK_REPEAT);
+    float buttonWidth = ImGui::CalcTextSize(text.c_str()).x + ImGui::GetStyle().FramePadding.x * 6;
+    float buttonHeight = ImGui::CalcTextSize(text.c_str()).y + ImGui::GetStyle().FramePadding.y * 6;
 
     ImVec2 button_size = ImVec2(buttonWidth, buttonHeight);
     float region_width = ImGui::GetContentRegionAvail().x;
@@ -651,7 +705,7 @@ void webcam_preview_ui::create_webcam_controls_section()
     ImGui::Dummy(ImVec2(0.0f, 8.0f));
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (region_width - button_size.x) * 0.5f);
 
-    if (ImGui::Button(text, button_size))
+    if (ImGui::Button(text.c_str(), button_size))
     {
         ImGui::OpenPopup("Webcam Controls");
     }
@@ -666,17 +720,19 @@ void webcam_preview_ui::create_webcam_controls_section()
         ImGui::Separator();
         ImGui::Dummy(ImVec2(0.0f, 5.0f));
 
-        if (ImGui::Button("OK", ImVec2(100, 0))) 
+        const float panel_width = ImGui::GetContentRegionAvail().x;
+        const float width = panel_width * 0.5f - ImGui::GetStyle().FramePadding.x * 2.0f;
+
+        if (ImGui::Button("OK", ImVec2(width, 0))) 
         { 
-            if (m_webcam_reset_sig)
-                m_webcam_reset_sig();
+            notify(ui_event_type::webcam_reset_changed);
             ImGui::CloseCurrentPopup(); 
         }
 
         ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
-
-        if (ImGui::Button("Cancel", ImVec2(100, 0))) 
+        
+        if (ImGui::Button("Cancel", ImVec2(width, 0))) 
             ImGui::CloseCurrentPopup(); 
 
         ImGui::EndPopup();
@@ -685,16 +741,31 @@ void webcam_preview_ui::create_webcam_controls_section()
 
 void webcam_preview_ui::create_frametime_section()
 {
-}
+    static int overlay_opacity = 70;
+    make_vertical_separator(0.1f);
 
-void webcam_preview_ui::on_always_on_top_changed(std::function<void(bool)> callback)
-{
-    m_aot_sig = std::move(callback);
-}
+    if (ImGui::BeginTable("##overlay", 3, ImGuiTableFlags_SizingStretchProp))
+    {
+        ImGui::TableSetupColumn("overlay_name");
+        ImGui::TableSetupColumn("overlay_opacity");
+        ImGui::TableSetupColumn("overlay_toggle");
 
-void webcam_preview_ui::on_renderer_changed(std::function<void(size_t)> callback)
-{
-    m_renderer_changed_sig = std::move(callback);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted("Overlay");
+
+        ImGui::TableSetColumnIndex(1);
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderInt("##Opacity", &overlay_opacity, 0, 100, "Opacity: %d%%"))
+            m_overlay_opacity = overlay_opacity / 100.0f;
+
+        ImGui::TableSetColumnIndex(2);
+        ToggleButton("Enable##overlay", &m_show_framerate_overlay);
+
+        ImGui::EndTable();
+    }
+
+    make_vertical_separator(0.2f);
 }
 
 void webcam_preview_ui::make_vertical_separator(float ver_size)
@@ -707,26 +778,6 @@ void webcam_preview_ui::shutdown()
 {
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
-}
-
-void webcam_preview_ui::on_webcam_device_changed(std::function<void(size_t)> callback)
-{
-    m_wdc_sig = std::move(callback);
-}
-
-void webcam_preview_ui::on_resolution_changed(std::function<void(size_t)> callback)
-{
-    m_resolution_changed_sig = std::move(callback);
-}
-
-void webcam_preview_ui::on_format_changed(std::function<void(size_t)> callback)
-{
-    m_format_changed_sig = std::move(callback);
-}
-
-void webcam_preview_ui::on_fps_changed(std::function<void(size_t)> callback)
-{
-    m_fps_changed_sig = std::move(callback);
 }
 
 const ImVec2& webcam_preview_ui::get_frame_buffer_scale()
@@ -744,41 +795,37 @@ bool webcam_preview_ui::is_canvas_loading()
     return m_canvas_loading;
 }
 
-void webcam_preview_ui::on_vsync_changed(std::function<void(size_t)> callback)
-{
-    m_vsync_changed_sig = std::move(callback);
-}
-
-void webcam_preview_ui::on_webcam_property_changed(std::function<void(const rwc::webcam_ctrl_property&)> callback)
-{
-    m_webcam_property_changed_sig = std::move(callback);
-}
-
 void webcam_preview_ui::trigger_save_notification()
 {
     show_save_notification = true;
     save_notification_start = std::chrono::steady_clock::now();
 }
 
-void webcam_preview_ui::on_webcam_properties_reseted(std::function<void()> callback)
-{
-    m_webcam_reset_sig = std::move(callback);
-}
-
 void webcam_preview_ui::reload_fonts_at_scale(float scale)
 {
-    if (m_frame_started)
-        finish_frame();
-    
-    constexpr float font_base_size = 16.0f;
-    float new_size = std::roundf(font_base_size * scale);
+    float new_size = std::roundf(BaseFontSize * scale);
+    settings().curr_font_size = new_size;
     auto& io = ImGui::GetIO();
 
     io.Fonts->Clear();
-    io.Fonts->AddFontFromFileTTF("assets/fonts/FiraCode-Regular.ttf", new_size);
+
+    // load normal fonts
+    std::span firacode_regular = std::span{ rigelapp::fonts::compressed::firacode_regular_compressed_data };
+    ImFontConfig config = {};
+    config.FontDataOwnedByAtlas = false;
+    io.Fonts->AddFontFromMemoryCompressedTTF(firacode_regular.data(), int(firacode_regular.size()), new_size, &config);
+
+    // load icon font
+    auto font_icons = std::span{ rigelapp::fonts::compressed::fork_awesome_regular_compressed_data };
+    float icon_font_size = new_size;
+
+    config.MergeMode = true;
+    config.PixelSnapH = true;
+    config.GlyphMinAdvanceX = icon_font_size;
+    constexpr ImWchar icon_ranges[] = { ICON_MIN_FK, ICON_MAX_16_FK, 0 };
+
+    io.Fonts->AddFontFromMemoryCompressedTTF(font_icons.data(), int(font_icons.size()), icon_font_size, &config, icon_ranges);
 
     ImGui_ImplSDLRenderer3_DestroyFontsTexture();
     ImGui_ImplSDLRenderer3_CreateFontsTexture();
-
-    ImGui::GetStyle().ScaleAllSizes(scale);
 }
