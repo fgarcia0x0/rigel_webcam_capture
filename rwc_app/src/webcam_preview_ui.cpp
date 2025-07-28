@@ -1,5 +1,4 @@
 #include "webcam_preview_ui.h"
-#include "SDL3/SDL_mouse.h"
 #include "icons_fork_awesome.hpp"
 #include "rwc/core/webcam_device.hpp"
 
@@ -813,7 +812,7 @@ void webcam_preview_ui::reload_fonts_at_scale(float scale)
     std::span firacode_regular = std::span{ rigelapp::fonts::compressed::firacode_regular_compressed_data };
     ImFontConfig config = {};
     config.FontDataOwnedByAtlas = false;
-    io.Fonts->AddFontFromMemoryCompressedTTF(firacode_regular.data(), int(firacode_regular.size()), new_size, &config);
+    auto default_font = io.Fonts->AddFontFromMemoryCompressedTTF(firacode_regular.data(), int(firacode_regular.size()), new_size, &config);
 
     // load icon font
     auto font_icons = std::span{ rigelapp::fonts::compressed::fork_awesome_regular_compressed_data };
@@ -822,10 +821,7 @@ void webcam_preview_ui::reload_fonts_at_scale(float scale)
     config.MergeMode = true;
     config.PixelSnapH = true;
     config.GlyphMinAdvanceX = icon_font_size;
-    constexpr ImWchar icon_ranges[] = { ICON_MIN_FK, ICON_MAX_16_FK, 0 };
 
-    io.Fonts->AddFontFromMemoryCompressedTTF(font_icons.data(), int(font_icons.size()), icon_font_size, &config, icon_ranges);
-
-    ImGui_ImplSDLRenderer3_DestroyFontsTexture();
-    ImGui_ImplSDLRenderer3_CreateFontsTexture();
+    io.Fonts->AddFontFromMemoryCompressedTTF(font_icons.data(), int(font_icons.size()), icon_font_size, &config);
+    ImGui::PushFont(default_font, new_size);
 }
