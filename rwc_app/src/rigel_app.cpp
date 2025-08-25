@@ -10,7 +10,6 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
-#include <print>
 #include <optional>
 #include <cstring>
 #include <cstdlib>
@@ -285,6 +284,7 @@ void rigel_app::show_window()
 void rigel_app::setup_ui_settings()
 {
     static bool ui_settings_initialized = false;
+
     webcam_preview_ui::initialize(m_window.get(), m_renderer.get());
 
     // setup ui properties

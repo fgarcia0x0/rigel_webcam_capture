@@ -40,7 +40,7 @@ static constexpr float BaseFontSize = 20.0f;
 struct webcam_preview_settings
 {
     float default_font_scale = 1.0f;
-    color_theme color_theme = color_theme::light;
+    ::color_theme color_theme = color_theme::light;
     bool frame_border = false;
     float frame_round = 0.0f;
     float window_round = 0.0f;

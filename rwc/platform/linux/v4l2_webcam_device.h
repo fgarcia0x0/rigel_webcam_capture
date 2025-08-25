@@ -32,13 +32,10 @@ namespace rwc
         capture_format_info current_format() noexcept override;
         bool set_current_format(const capture_format_info& format) override;
         bool set_current_format_by_index(uint32_t index) override;
+        bool set_preferred_decode_backend(hwd_decode_backend backend) override;
         static uint32_t device_count() noexcept;
 
-        // Ctrl Operations
-        std::optional<webcam_ctrl_property> get_ctrl_property(webcam_property_type type) override;
-        bool set_ctrl_property(webcam_property_type type, int32_t value) override;
-        bool set_ctrl_property_default(webcam_property_type type) override;
-        void reset_ctrl_properties() override;
+        webcam_controller* ctrl() noexcept override;
 
         // Streaming Operations
         bool has_pending_frame() const override;
@@ -79,5 +76,6 @@ namespace rwc
         std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
         std::atomic<bool> m_opened{ false };
         std::atomic<bool> m_streaming{ false };
+        std::unique_ptr<webcam_controller> m_controller{ nullptr };
     };
 }

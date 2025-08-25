@@ -1,10 +1,10 @@
 file(GLOB_RECURSE RWC_PLATFORM_LINUX_HEADERS
-    ${RWC_PLATFORM_DIR}/*.h
-    ${RWC_PLATFORM_DIR}/*.hpp
+    ${RWC_PLATFORM_DIR}/linux/*.h
+    ${RWC_PLATFORM_DIR}/linux/*.hpp
 )
 
 file(GLOB_RECURSE RWC_PLATFORM_LINUX_SOURCES
-    ${RWC_PLATFORM_DIR}/*.cpp
+    ${RWC_PLATFORM_DIR}/linux/*.cpp
 )
 
 # find and links libyuv

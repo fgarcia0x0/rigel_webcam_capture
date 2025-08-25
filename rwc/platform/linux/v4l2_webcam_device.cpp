@@ -1,5 +1,6 @@
+#include "rwc/core/webcam_device.hpp"
 #include <rwc/platform/linux/v4l2_webcam_device.h>
-#include <rwc/core/webcam_image_decoder.h>
+#include <rwc/platform/linux/v4l2_webcam_controller.h>
 #include <rwc/core/webcam_utils.h>
 #include <rwc/utils/scope_exit.hpp>
 #include <rwc/logger/logger.h>
@@ -11,9 +12,9 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <tuple>
 #include <unistd.h>
 #include <linux/videodev2.h>
-#include <linux/v4l2-controls.h>
 
 #include <optional>
 #include <algorithm>
@@ -74,6 +75,7 @@ namespace rwc
             return webcam_error_status::query_capability_failed;
 
         m_device_info = std::move(device_info).value();
+        m_controller = std::make_unique<v4l2_webcam_controller>(m_device_fd);
         m_opened = true;
 
         // select best format if not set
@@ -123,7 +125,12 @@ namespace rwc
     {
         return m_device_info;
     }
-    
+
+    webcam_controller* v4l2_webcam_device::ctrl() noexcept
+    {
+        return m_controller.get();
+    }
+
     bool v4l2_webcam_device::has_pending_frame() const 
     {
         return !m_frame_queue.empty() || m_last_frame_status != webcam_error_status::ok;
@@ -153,6 +160,12 @@ namespace rwc
             return false;
 
         m_current_format = m_device_info.formats[index];
+        return true;
+    }
+    
+    bool v4l2_webcam_device::set_preferred_decode_backend(hwd_decode_backend backend)
+    {
+        std::ignore = backend;
         return true;
     }
     
@@ -209,96 +222,6 @@ namespace rwc
         }
 
         return device_count;
-    }
-    
-    std::optional<webcam_ctrl_property> v4l2_webcam_device::get_ctrl_property(webcam_property_type type)
-    {
-        if (type == webcam_property_type::last)
-            return {};
-
-        webcam_ctrl_property wc_ctrl_prop{};
-        v4l2_control ctrl = {};
-        v4l2_queryctrl query_ctrl = {};
-        bool is_auto = false;
-
-        uint32_t id = to_v4l2_type(type);
-        if (id == UINT32_MAX)
-            return {};
-
-        switch (type) 
-        {
-            case webcam_property_type::auto_exposure:
-            case webcam_property_type::auto_focus:
-            case webcam_property_type::auto_white_balance:
-            case webcam_property_type::auto_gain:
-                is_auto = true;
-                break;
-            default:
-                is_auto = false;
-                break;
-        }
-
-        ctrl.id = query_ctrl.id = static_cast<uint32_t>(id);
-        if (sys_ioctl(m_device_fd, VIDIOC_G_CTRL, &ctrl) < 0)
-        {
-            RWC_LOG_ERROR("Failed to get property value (id={}, name={}) on VIDIOC_G_CTRL (errno={}, errno_str=\"{}\")", 
-                          uint32_t(type), webcam_utils::prop_type_to_string(type), errno, strerror(errno));
-            return {};        
-        }
-
-        if (sys_ioctl(m_device_fd, VIDIOC_QUERYCTRL, &query_ctrl) < 0)
-        {
-            RWC_LOG_ERROR("Failed to get property limits (id={}, name=\"{}\") on VIDIOC_QUERYCTRL (errno={}, errno_str=\"{}\")",
-                          uint32_t(type), webcam_utils::prop_type_to_string(type), errno, strerror(errno));
-            return {};
-        }
-
-        int32_t value = ctrl.value;
-        if (ctrl.id == V4L2_CID_EXPOSURE_AUTO)
-            value = (ctrl.value == V4L2_EXPOSURE_MANUAL) ? 0 : 1;
-
-        wc_ctrl_prop.type = type;
-        wc_ctrl_prop.value = value;
-        wc_ctrl_prop.step = query_ctrl.step;
-        wc_ctrl_prop.minimum = query_ctrl.minimum;
-        wc_ctrl_prop.maximum = query_ctrl.maximum;
-        wc_ctrl_prop.default_value = query_ctrl.default_value;
-        wc_ctrl_prop.is_auto = is_auto;
-
-        return wc_ctrl_prop;
-    }
-    
-    bool v4l2_webcam_device::set_ctrl_property(webcam_property_type type, int32_t value)
-    {
-        v4l2_control ctrl = {};
-        uint32_t id = to_v4l2_type(type);
-        
-        if (id == UINT32_MAX)
-            return false;
-
-        ctrl.id = id;
-        ctrl.value = value;
-
-        if (sys_ioctl(m_device_fd, VIDIOC_S_CTRL, &ctrl) < 0)
-        {
-            RWC_LOG_ERROR("Failed to set property value (id={}, name={}) to [{}] on VIDIOC_S_CTRL (errno={}, errno_str=\"{}\")", 
-                          uint32_t(type), webcam_utils::prop_type_to_string(type), value, errno, strerror(errno));
-            return false;
-        }
-
-        return true;
-    }
-    
-    bool v4l2_webcam_device::set_ctrl_property_default(webcam_property_type type)
-    {
-        auto ctrl_prop = get_ctrl_property(type);
-        return ctrl_prop ? set_ctrl_property(type, ctrl_prop->default_value) : false;
-    }
-    
-    void v4l2_webcam_device::reset_ctrl_properties()
-    {
-        for (uint32_t prop_index{}; prop_index != std::to_underlying(webcam_property_type::last); ++prop_index)
-            set_ctrl_property_default(static_cast<webcam_property_type>(prop_index));
     }
     
     std::optional<webcam_device_info> v4l2_webcam_device::read_device_info()
@@ -594,6 +517,8 @@ namespace rwc
         webcam_stop_streaming();
         destroy_webcam_buffers();
 
+        m_last_frame_status = webcam_error_status::ok;
+        m_frame_queue.clear();
         m_streaming = false;
     }
 
@@ -710,70 +635,6 @@ namespace rwc
         frame->buffer = std::move(new_buffer);
 
         return webcam_error_status::ok;
-    }
-    
-    uint32_t v4l2_webcam_device::to_v4l2_type(webcam_property_type type)
-    {
-        uint32_t id{ UINT32_MAX };
-
-        switch (type)
-        {
-        case webcam_property_type::exposure:
-            id = V4L2_CID_EXPOSURE_ABSOLUTE;
-            break;
-        case webcam_property_type::auto_exposure:
-            id = V4L2_CID_EXPOSURE_AUTO;
-            break;
-        case webcam_property_type::focus:
-            id = V4L2_CID_FOCUS_ABSOLUTE;
-            break; 
-        case webcam_property_type::auto_focus:
-            id = V4L2_CID_FOCUS_AUTO;
-            break;
-        case webcam_property_type::zoom:
-            id = V4L2_CID_ZOOM_ABSOLUTE;
-            break;
-        case webcam_property_type::white_balance:
-            id = V4L2_CID_WHITE_BALANCE_TEMPERATURE;
-            break;
-        case webcam_property_type::auto_white_balance:
-            id = V4L2_CID_AUTO_WHITE_BALANCE;
-            break;
-        case webcam_property_type::gain:
-            id = V4L2_CID_GAIN;
-            break;
-        case webcam_property_type::auto_gain:
-            id = V4L2_CID_AUTOGAIN;
-            break;
-        case webcam_property_type::brightness:
-            id = V4L2_CID_BRIGHTNESS;
-            break;
-        case webcam_property_type::contrast:
-            id = V4L2_CID_CONTRAST;
-            break;
-        case webcam_property_type::saturation:
-            id = V4L2_CID_SATURATION;
-            break;
-        case webcam_property_type::gamma:
-            id = V4L2_CID_GAMMA;
-            break;
-        case webcam_property_type::hue:
-            id = V4L2_CID_HUE;
-            break;
-        case webcam_property_type::sharpness:
-            id = V4L2_CID_SHARPNESS;
-            break;
-        case webcam_property_type::back_light_comp:
-            id = V4L2_CID_BACKLIGHT_COMPENSATION;
-            break;
-        case webcam_property_type::power_line_freq:
-            id = V4L2_CID_POWER_LINE_FREQUENCY;
-            break;
-        case webcam_property_type::last:
-            break;
-        }
-
-        return id;
     }
 
     v4l2_webcam_device::~v4l2_webcam_device()

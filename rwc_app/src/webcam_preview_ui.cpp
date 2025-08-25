@@ -135,11 +135,11 @@ bool webcam_preview_ui::initialize(SDL_Window* window, SDL_Renderer* renderer)
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
 
-    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
-    ImGui_ImplSDLRenderer3_Init(renderer);
-
     // load font with default scale (1.0f)
     webcam_preview_ui::reload_fonts_at_scale(1.0f);
+
+    ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
+    ImGui_ImplSDLRenderer3_Init(renderer);
 
     return true;
 }
@@ -659,7 +659,7 @@ void webcam_preview_ui::create_webcam_controls_section()
 
             if (webcam_props[i].type == rwc::webcam_property_type::power_line_freq)
             {
-                constexpr size_t plf_mode_count = 3;
+                constexpr int32_t plf_mode_count = 3;
                 constexpr const char* plf_names[plf_mode_count] = { "None", "50Hz", "60Hz" };
                 int32_t value = webcam_props[i].value;
                 slider_fmt = (value >= 0 && value < plf_mode_count) ? plf_names[value] : "Unknown";

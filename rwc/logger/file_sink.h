@@ -4,7 +4,7 @@
 #include <rwc/utils/utils.hpp>
 #include <rwc/platform/platform.hpp>
 
-#include <cstdio>
+#include <stdio.h>
 #include <memory>
 
 namespace rwc
@@ -18,6 +18,6 @@ namespace rwc
         RWC_API void write(const log_message& msg) override;
         RWC_API ~file_sink();
     private:
-        std::unique_ptr<FILE, decltype(&fclose)> m_file_ptr;
+        std::unique_ptr<FILE, int(*)(FILE*)> m_file_ptr;
     };
 }

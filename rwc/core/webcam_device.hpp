@@ -7,6 +7,7 @@
 #include <optional>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <memory>
 
 #include <rwc/platform/platform.hpp>
