@@ -342,7 +342,6 @@ bool rigel_app::setup_webcam_device(size_t device_index)
     auto on_webcam_stream_started = [this](){
         end_webcam_operation();
         create_webcam_texture();
-        webcam_preview_ui::set_canvas_loading(false);
     };
 
     auto default_format = wcam->current_format();
@@ -541,6 +540,8 @@ void rigel_app::process_events()
 
 void rigel_app::process_webcam_frame()
 {
+    update_texture_warmup();
+
     if (m_webcam_device && m_webcam_device->has_pending_frame())
     {
         auto frame = m_webcam_device->read_frame();
@@ -583,12 +584,23 @@ void rigel_app::render_frame()
         dst_rect_ptr = &dst_rect;
     }
 
-    if (m_texture && !webcam_preview_ui::is_canvas_loading())
+    // While warming up, we still draw the texture every frame (instead of
+    // skipping it like the general loading state does) so the GPU driver's
+    // YUV shader pipeline actually gets exercised and converges - see
+    // update_texture_warmup(). It's then covered below so the user never
+    // sees the wrong colors that come out of it during that window.
+    if (m_texture && (!webcam_preview_ui::is_canvas_loading() || m_texture_warming_up))
     {
         if (m_image_flipped)
             SDL_RenderTextureRotated(m_renderer.get(), m_texture.get(), nullptr, dst_rect_ptr, 180, nullptr, SDL_FLIP_VERTICAL);
         else
             SDL_RenderTexture(m_renderer.get(), m_texture.get(), nullptr, dst_rect_ptr);
+    }
+
+    if (m_texture_warming_up)
+    {
+        SDL_SetRenderDrawColor(m_renderer.get(), 50, 50, 50, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(m_renderer.get(), dst_rect_ptr);
     }
 
     webcam_preview_ui::render(m_renderer.get());
@@ -646,6 +658,7 @@ void rigel_app::renderer_changed_handler(size_t renderer_index)
             std::exit(EXIT_FAILURE);
         }
 
+        webcam_preview_ui::set_canvas_loading(true);
         create_webcam_texture();
         RWC_LOG_INFO("Renderer changed to: {}", renderer_name);
     }
@@ -749,10 +762,30 @@ void rigel_app::create_webcam_texture()
                                         ? SDL_COLORSPACE_JPEG
                                         : SDL_COLORSPACE_BT601_LIMITED;
         create_texture(int(format.width), int(format.height), SDL_PIXELFORMAT_NV12, colorspace);
+
+        // Only NV12 has the shader warm-up glitch - keep the loading spinner
+        // (already showing, set by our caller) up a little longer instead of
+        // clearing it immediately.
+        m_texture_warming_up = true;
+        m_texture_ready_at_ms = SDL_GetTicks();
     }
     else
     {
         create_texture(int(format.width), int(format.height), SDL_PIXELFORMAT_RGB24);
+        webcam_preview_ui::set_canvas_loading(false);
+    }
+}
+
+void rigel_app::update_texture_warmup()
+{
+    if (!m_texture_warming_up)
+        return;
+
+    constexpr Uint64 kWarmUpMs = 2000;
+    if (SDL_GetTicks() - m_texture_ready_at_ms >= kWarmUpMs)
+    {
+        m_texture_warming_up = false;
+        webcam_preview_ui::set_canvas_loading(false);
     }
 }
 
@@ -830,8 +863,7 @@ void rigel_app::change_webcam_capture_format(const rwc::capture_format_info& new
         m_task_queue.push_task(
             [this](){ m_webcam_device->start_stream(); },
             [this]() { end_webcam_operation();
-                       create_webcam_texture();
-                       webcam_preview_ui::set_canvas_loading(false); }
+                       create_webcam_texture(); }
         );
         return;
     }

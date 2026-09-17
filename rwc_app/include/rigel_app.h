@@ -57,6 +57,12 @@ private:
     void save_frame_to_file(std::string_view filepath);
     bool build_render_pipeline(std::string_view renderer_name);
     void create_webcam_texture();
+    // Freshly created NV12 textures render with wrong colors for a bit
+    // (observed up to ~1-2s) while the GPU driver compiles/caches its YUV
+    // shader pipeline for the first time. Called once per frame; keeps the
+    // existing loading spinner up over that window instead of flashing the
+    // wrong colors at the user.
+    void update_texture_warmup();
     void process_tasks();
     void change_webcam_capture_format(const rwc::capture_format_info& new_format_info);
     void update_webcam_properties();
@@ -92,4 +98,6 @@ private:
     bool m_draw_frame = false;
     bool m_image_flipped = false;
     bool m_webcam_op_pending = false;
+    bool m_texture_warming_up = false;
+    Uint64 m_texture_ready_at_ms = 0;
 };
