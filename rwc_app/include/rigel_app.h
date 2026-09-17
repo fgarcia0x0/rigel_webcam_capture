@@ -47,7 +47,7 @@ private:
     void setup_ui_data();
     bool setup_webcam_device(size_t device_index = 0);
     void setup_signal_handlers();
-    bool create_texture(int width, int height, uint32_t pixel_format);
+    bool create_texture(int width, int height, uint32_t pixel_format, SDL_Colorspace colorspace = SDL_COLORSPACE_UNKNOWN);
     SDL_FRect adjust_aspect_ratio(int tex_width, int tex_height);
     void process_events();
     void process_webcam_frame();

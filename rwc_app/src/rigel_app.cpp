@@ -123,15 +123,28 @@ static inline bool verify_window_visibility(SDL_Window* window)
     return !is_hidden && !is_minimized;
 }
 
-static inline bool upload_data_to_texture(SDL_Texture* texture, const void* buffer, size_t buffer_size)
+static inline bool upload_data_to_texture(SDL_Texture* texture, const rwc::webcam_frame& frame)
 {
+    if (frame.format == rwc::webcam_pixel_format::nv12)
+    {
+        // frame.buffer is a Y plane (width*height) immediately followed by an
+        // interleaved U,V plane (width*(height/2)), both stride == width -
+        // exactly what SDL_UpdateNVTexture expects.
+        const uint8_t* y_plane = frame.buffer.get();
+        const uint8_t* uv_plane = y_plane + size_t(frame.width) * frame.height;
+        bool ok = SDL_UpdateNVTexture(texture, nullptr, y_plane, int(frame.width), uv_plane, int(frame.width));
+        if (!ok)
+            RWC_LOG_ERROR("SDL_UpdateNVTexture failed: {}", SDL_GetError());
+        return ok;
+    }
+
     void* tex_pixels = nullptr;
     int tex_pitch = 0;
 
     if (!SDL_LockTexture(texture, nullptr, &tex_pixels, &tex_pitch))
         return false;
-    
-    std::memcpy(tex_pixels, buffer, buffer_size);
+
+    std::memcpy(tex_pixels, frame.buffer.get(), frame.size);
     SDL_UnlockTexture(texture);
 
     return true;
@@ -374,13 +387,36 @@ void rigel_app::setup_signal_handlers()
     dispatch_event<bool>(ui_event_type::webcam_enable_hor_flip, this, &rigel_app::webcam_image_horflip_changed);
 }
 
-bool rigel_app::create_texture(int width, int height, uint32_t pixel_format)
+bool rigel_app::create_texture(int width, int height, uint32_t pixel_format, SDL_Colorspace colorspace)
 {
     if (m_texture)
         m_texture.reset();
 
-    m_texture.reset(SDL_CreateTexture(m_renderer.get(), static_cast<SDL_PixelFormat>(pixel_format), 
-                                      SDL_TEXTUREACCESS_STREAMING, width, height));
+    if (colorspace == SDL_COLORSPACE_UNKNOWN)
+    {
+        m_texture.reset(SDL_CreateTexture(m_renderer.get(), static_cast<SDL_PixelFormat>(pixel_format),
+                                          SDL_TEXTUREACCESS_STREAMING, width, height));
+    }
+    else
+    {
+        // Only NV12 textures need this: SDL's default colorspace for NV12
+        // (SDL_COLORSPACE_JPEG, i.e. full-range) is wrong for our H264
+        // frames, which stay studio/limited-range like the H264 stream they
+        // came from - see webcam_utils::codec_uses_full_range_yuv. Getting
+        // this wrong doesn't fail to render, it just renders with a visibly
+        // shifted black level/contrast.
+        SDL_PropertiesID props = SDL_CreateProperties();
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, pixel_format);
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STREAMING);
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, width);
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, height);
+        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, colorspace);
+        m_texture.reset(SDL_CreateTextureWithProperties(m_renderer.get(), props));
+        SDL_DestroyProperties(props);
+        if (!m_texture)
+            RWC_LOG_ERROR("SDL_CreateTextureWithProperties failed: {}", SDL_GetError());
+    }
+
     return !!m_texture;
 }
 
@@ -513,7 +549,7 @@ void rigel_app::process_webcam_frame()
             bool frame_bounds_changed = frame->width != uint32_t(m_texture->w) || frame->height != uint32_t(m_texture->h);
             if (!frame_bounds_changed)
             {
-                upload_data_to_texture(m_texture.get(), frame->buffer.get(), frame->size);
+                upload_data_to_texture(m_texture.get(), *frame);
                 m_draw_frame = true;
             }
         }
@@ -566,7 +602,27 @@ void rigel_app::save_frame_to_file(std::string_view filepath)
     
     if (SDL_LockTextureToSurface(texture, nullptr, &surface))
     {
-        SDL_SaveBMP(surface, filepath.data());
+        // NV12 (or any other FourCC/YUV) surfaces can't be saved as BMP
+        // directly - convert to RGB24 first, via SDL's own (software, if
+        // needed) colorspace-aware conversion.
+        if (SDL_ISPIXELFORMAT_FOURCC(surface->format))
+        {
+            SDL_Surface* rgb_surface = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGB24);
+            if (rgb_surface)
+            {
+                SDL_SaveBMP(rgb_surface, filepath.data());
+                SDL_DestroySurface(rgb_surface);
+            }
+            else
+            {
+                RWC_LOG_ERROR("Failed to convert frame to RGB24 for saving: {}", SDL_GetError());
+            }
+        }
+        else
+        {
+            SDL_SaveBMP(surface, filepath.data());
+        }
+
         SDL_UnlockTexture(texture);
         webcam_preview_ui::trigger_save_notification();
     }
@@ -685,9 +741,19 @@ void rigel_app::webcam_device_changed_handler(size_t device_index)
 
 void rigel_app::create_webcam_texture()
 {
-    create_texture(m_webcam_device->current_format().width, 
-                   m_webcam_device->current_format().height, 
-                   SDL_PIXELFORMAT_RGB24);
+    auto format = m_webcam_device->current_format();
+
+    if (rwc::webcam_utils::pixel_format_for_codec(format.codec) == rwc::webcam_pixel_format::nv12)
+    {
+        SDL_Colorspace colorspace = rwc::webcam_utils::codec_uses_full_range_yuv(format.codec)
+                                        ? SDL_COLORSPACE_JPEG
+                                        : SDL_COLORSPACE_BT601_LIMITED;
+        create_texture(int(format.width), int(format.height), SDL_PIXELFORMAT_NV12, colorspace);
+    }
+    else
+    {
+        create_texture(int(format.width), int(format.height), SDL_PIXELFORMAT_RGB24);
+    }
 }
 
 void rigel_app::webcam_resolution_changed(size_t res_index)

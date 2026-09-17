@@ -53,4 +53,24 @@ namespace rwc
 
         return name;
     }
+
+    webcam_pixel_format webcam_utils::pixel_format_for_codec(uint32_t codec) noexcept
+    {
+        if (codec == RWC_WEBCAM_CODEC_TYPE_MJPEG || codec == RWC_WEBCAM_CODEC_TYPE_JPEG ||
+            codec == RWC_WEBCAM_CODEC_TYPE_H264)
+        {
+            return webcam_pixel_format::nv12;
+        }
+
+        // YUYV/YUY2 (and any other/unsupported codec, which will simply fail
+        // to decode) stay RGB24.
+        return webcam_pixel_format::rgb24;
+    }
+
+    bool webcam_utils::codec_uses_full_range_yuv(uint32_t codec) noexcept
+    {
+        // JPEG's YCbCr is always full-range by spec; H264's is the typical
+        // studio/limited-range convention this camera's stream uses.
+        return codec == RWC_WEBCAM_CODEC_TYPE_MJPEG || codec == RWC_WEBCAM_CODEC_TYPE_JPEG;
+    }
 }

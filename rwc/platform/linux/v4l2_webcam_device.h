@@ -44,7 +44,7 @@ namespace rwc
         bool is_streaming() const override;
         webcam_error_status start_stream() override;
         void stop_stream() override;
-        std::expected<webcam_frame_rgb24, webcam_error_status> read_frame() override;
+        std::expected<webcam_frame, webcam_error_status> read_frame() override;
 
         virtual ~v4l2_webcam_device() override;
     private:
@@ -59,8 +59,8 @@ namespace rwc
         bool webcam_stop_streaming();
         webcam_error_status wait_device_ready(std::chrono::seconds timeout);
         void v4l2_capture_thread(std::stop_token token);
-        webcam_error_status decode_frame_to_rgb24(std::span<const uint8_t> raw_src, webcam_frame_rgb24* frame,
-                                                    uint32_t codec, webcam_image_decoder* decoder);
+        webcam_error_status decode_frame(std::span<const uint8_t> raw_src, webcam_frame* frame,
+                                          uint32_t codec, webcam_image_decoder* decoder);
         uint32_t to_v4l2_type(webcam_property_type type);
 
         struct buffer_data
@@ -75,7 +75,7 @@ namespace rwc
         capture_format_info m_current_format{};
         std::vector<buffer_data> m_buffer_pool;
         std::unique_ptr<std::jthread> m_v4l2_thread;
-        swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
+        swsr_ring_buffer<webcam_frame, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
         // Buffers actually "in flight" (queued in m_frame_queue, being
         // decoded into, or held by the caller) are never in this free list -
         // it only smooths the alloc/free churn of buffers that have already
