@@ -35,8 +35,13 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Define a common output directory
-set(OUTPUT_DIR "${CMAKE_HOME_DIRECTORY}/bin")
+# Define a common output directory, split per build type (bin/debug, bin/release, ...)
+if(CMAKE_BUILD_TYPE)
+	string(TOLOWER "${CMAKE_BUILD_TYPE}" RWC_BUILD_TYPE_DIR)
+else()
+	set(RWC_BUILD_TYPE_DIR "debug")
+endif()
+set(OUTPUT_DIR "${CMAKE_HOME_DIRECTORY}/bin/${RWC_BUILD_TYPE_DIR}")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}" CACHE PATH "Runtime output directory")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIR}" CACHE PATH "Library output directory")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}" CACHE PATH "Archive output directory")

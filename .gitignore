@@ -32,6 +32,7 @@
 *.app
 
 build/
+build-*/
 bin/
 .cache
 vcpkg_installed
