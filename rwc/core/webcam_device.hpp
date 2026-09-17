@@ -33,7 +33,10 @@ namespace rwc
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_NV12                 = detail::make_fourcc({'N', 'V', '1', '2'});
     static constexpr auto RWC_WEBCAM_CODEC_TYPE_DEFAULT              = RWC_WEBCAM_CODEC_TYPE_MJPEG;
     static constexpr auto RWC_WEBCAM_TYPICAL_FRAMERATE               = 30u;
-    static constexpr auto RWC_WEBCAM_STREAMING_BUFFER_COUNT          = 2u;
+    // Enough buffers for the driver to keep filling while a frame is being decoded.
+    // With too few, a single slow decode makes the driver drop frames, which breaks
+    // inter-frame codecs like H264 until the camera sends the next keyframe.
+    static constexpr auto RWC_WEBCAM_STREAMING_BUFFER_COUNT          = 6u;
     static constexpr auto RWC_WEBCAM_STREAMING_MIN_BUFFER_COUNT      = 2u;
     static constexpr auto RWC_WEBCAM_STREAMING_TIMEOUT               = std::chrono::seconds{ 2 };
     static constexpr auto RWC_WEBCAM_STREAMING_MAX_CONTINUOS_TIMEOUT = 10u;

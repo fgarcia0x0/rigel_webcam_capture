@@ -526,6 +526,8 @@ namespace rwc
     {
         uint32_t timeout_count{};
         webcam_image_decoder decoder{};
+        uint32_t last_sequence{};
+        bool have_last_sequence{};
 
         while (!token.stop_requested())
         {
@@ -561,6 +563,14 @@ namespace rwc
                 return;
             }
             
+            if (have_last_sequence && buffer.sequence != last_sequence + 1)
+            {
+                RWC_LOG_WARN("DROPPED {} frame(s) by the driver [seq {} -> {}]",
+                             buffer.sequence - last_sequence - 1, last_sequence, buffer.sequence);
+            }
+            last_sequence = buffer.sequence;
+            have_last_sequence = true;
+
             std::unique_ptr<uint8_t[]> img_buffer{ new (std::nothrow) uint8_t[buffer.bytesused] };
             if (!img_buffer)
             {
@@ -575,13 +585,14 @@ namespace rwc
                                       buffer.bytesused, timestamp, std::move(img_buffer) };
 
             status = decode_frame_to_rgb24(&frame, m_current_format.codec, &decoder);
-            if (status != webcam_error_status::ok)
+            if (status == webcam_error_status::ok)
             {
-                m_last_frame_status = status;
-                continue; // ignore this frame and go to another
+                m_frame_queue.enqueue(std::move(frame));
             }
-            
-            m_frame_queue.enqueue(std::move(frame));
+            // else: ignore this frame and go to another. This is expected to happen
+            // transiently (e.g. a corrupt frame, or the one-frame decode delay some
+            // codecs like H264 have on their very first buffer), so it must not be
+            // treated as a fatal/sticky error - only requeue the buffer below and retry.
 
             if (sys_ioctl(m_device_fd, VIDIOC_QBUF, &buffer) < 0)
             {
@@ -601,10 +612,11 @@ namespace rwc
     webcam_error_status v4l2_webcam_device::decode_frame_to_rgb24(webcam_frame_rgb24* frame, uint32_t codec, webcam_image_decoder* decoder)
     {
         static constexpr uint32_t rgb_bytes_per_pixel{ 3 };
-        static constexpr std::array supported_codecs { 
-            RWC_WEBCAM_CODEC_TYPE_YUYV, 
-            RWC_WEBCAM_CODEC_TYPE_MJPEG, 
-            RWC_WEBCAM_CODEC_TYPE_JPEG 
+        static constexpr std::array supported_codecs {
+            RWC_WEBCAM_CODEC_TYPE_YUYV,
+            RWC_WEBCAM_CODEC_TYPE_MJPEG,
+            RWC_WEBCAM_CODEC_TYPE_JPEG,
+            RWC_WEBCAM_CODEC_TYPE_H264
         };
 
         // if not contains any supported codecs, return
