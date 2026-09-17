@@ -28,6 +28,12 @@ endif()
 
 if(UNIX AND NOT APPLE)
     set(RWC_PLATFORM_LINUX TRUE)
+
+    # The libXScrnSaver dev package isn't installed on every distro by
+    # default, and SDL's screen-saver-inhibit support is not something this
+    # app needs - skip the hard dependency instead of requiring everyone
+    # building this to install one more X11 -devel package.
+    set(SDL_X11_XSCRNSAVER OFF CACHE BOOL "" FORCE)
 elseif (APPLE)
 	set(RWC_PLATFORM_MACOS TRUE)
 elseif (WIN32)
