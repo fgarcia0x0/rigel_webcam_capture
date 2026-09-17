@@ -19,10 +19,18 @@ namespace rwc
     // off to the caller of read_frame() and its buffer is freed whenever that
     // caller lets it go out of scope. release() is therefore mutex-protected.
     //
-    // All buffers handed out by a given pool instance must be the same size
-    // (the RGB24 frame size for the currently active stream); call reset()
+    // Buffers handed out by a given pool instance are normally all the same
+    // size (the frame size for the currently active stream) - call reset()
     // whenever that size may have changed (e.g. before starting a new
-    // streaming session) so stale, wrongly-sized buffers are never recycled.
+    // streaming session) so stale, wrongly-sized buffers aren't recycled.
+    // acquire() additionally double-checks the size of whatever it pops from
+    // the free list and discards it on a mismatch rather than trusting that
+    // invariant blindly: a buffer can be release()d well after reset() (e.g.
+    // one sitting unread in a swsr_ring_buffer slot when a session ends,
+    // only actually destroyed - and thus only released back here - whenever
+    // some later enqueue() happens to overwrite that slot), and handing out
+    // a too-small recycled buffer to a caller expecting `size` bytes is a
+    // heap buffer overflow, not just wasted memory.
     class frame_buffer_pool : public std::enable_shared_from_this<frame_buffer_pool>
     {
     public:
@@ -41,16 +49,16 @@ namespace rwc
         // allocation failure.
         owned_buffer acquire(size_t size)
         {
-            std::unique_ptr<std::uint8_t[]> raw = take_from_free_list();
+            std::unique_ptr<std::uint8_t[]> raw = take_from_free_list(size);
 
             if (!raw)
             {
                 raw.reset(new (std::nothrow) std::uint8_t[size]);
                 if (!raw)
-                    return owned_buffer{ nullptr, make_deleter() };
+                    return owned_buffer{ nullptr, make_deleter(size) };
             }
 
-            return owned_buffer{ raw.release(), make_deleter() };
+            return owned_buffer{ raw.release(), make_deleter(size) };
         }
 
         // Drops every buffer currently sitting in the free list. Call this
@@ -63,23 +71,33 @@ namespace rwc
         }
 
     private:
-        std::unique_ptr<std::uint8_t[]> take_from_free_list()
+        struct pooled_block
+        {
+            std::unique_ptr<std::uint8_t[]> data;
+            size_t size;
+        };
+
+        std::unique_ptr<std::uint8_t[]> take_from_free_list(size_t size)
         {
             std::lock_guard lock(m_mutex);
-            if (m_free_list.empty())
-                return nullptr;
-
-            auto buffer = std::move(m_free_list.back());
-            m_free_list.pop_back();
-            return buffer;
+            for (size_t i = m_free_list.size(); i-- > 0;)
+            {
+                if (m_free_list[i].size == size)
+                {
+                    auto buffer = std::move(m_free_list[i].data);
+                    m_free_list.erase(m_free_list.begin() + std::ptrdiff_t(i));
+                    return buffer;
+                }
+            }
+            return nullptr;
         }
 
-        void release(std::uint8_t* ptr) noexcept
+        void release(std::uint8_t* ptr, size_t size) noexcept
         {
             std::lock_guard lock(m_mutex);
             if (m_free_list.size() < m_max_pooled_buffers)
             {
-                m_free_list.emplace_back(ptr);
+                m_free_list.push_back({ std::unique_ptr<std::uint8_t[]>(ptr), size });
             }
             else
             {
@@ -87,26 +105,26 @@ namespace rwc
             }
         }
 
-        std::function<void(std::uint8_t*)> make_deleter()
+        std::function<void(std::uint8_t*)> make_deleter(size_t size)
         {
             // Captures a weak_ptr, not `this`: if the pool (and the device
             // that owns it) is destroyed while a frame handed out to a
             // caller is still alive, the buffer is just freed normally
             // instead of dereferencing a dangling pool.
-            return [weak_self = weak_from_this()](std::uint8_t* ptr)
+            return [weak_self = weak_from_this(), size](std::uint8_t* ptr)
             {
                 if (!ptr)
                     return;
 
                 if (auto self = weak_self.lock())
-                    self->release(ptr);
+                    self->release(ptr, size);
                 else
                     delete[] ptr;
             };
         }
 
         std::mutex m_mutex;
-        std::vector<std::unique_ptr<std::uint8_t[]>> m_free_list;
+        std::vector<pooled_block> m_free_list;
         size_t m_max_pooled_buffers;
     };
 }

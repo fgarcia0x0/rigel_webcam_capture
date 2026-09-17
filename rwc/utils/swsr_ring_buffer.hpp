@@ -91,8 +91,21 @@ namespace rwc
             return m_dropped_count.load(std::memory_order_relaxed);
         }
 
+        // Resets to empty AND destroys every slot's current contents (e.g.
+        // releasing a still-held frame buffer back to its pool) instead of
+        // just rewinding the indices. Without this, an item enqueued but
+        // never dequeued before a stop/restart would sit alive in m_buffer
+        // until some future enqueue() happened to overwrite that exact slot
+        // - on a v4l2_webcam_device, that means its pooled buffer could be
+        // released back to frame_buffer_pool *after* the pool was reset()
+        // for a new, differently-sized session, silently reintroducing a
+        // wrong-sized buffer into a pool whose one invariant is that every
+        // buffer in it is the same size.
         void clear() noexcept
         {
+            for (auto& slot : m_buffer)
+                slot = T{};
+
             m_head.store(0, std::memory_order_release);
             m_tail.store(0, std::memory_order_release);
         }
