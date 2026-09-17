@@ -189,36 +189,46 @@ namespace rwc
         const fs::path scan_path{ "/sys/class/video4linux/" };
         uint32_t device_count{};
 
-        for (auto&& entry : fs::directory_iterator{ scan_path })
+        // std::filesystem::directory_iterator can throw (e.g. if scan_path
+        // doesn't exist), which would otherwise be an uncaught exception in an
+        // otherwise exception-free, status-code-based codebase.
+        try
         {
-            if (entry.path().filename().string().contains("video"))
+            for (auto&& entry : fs::directory_iterator{ scan_path })
             {
-                fs::path target_path{ "/dev" / entry.path().filename() };
-                int fd = ::open(target_path.string().c_str(), O_RDWR | O_NONBLOCK);
-                
-                if (fd >= 0)
+                if (entry.path().filename().string().contains("video"))
                 {
-                    v4l2_capability video_caps = {};
-                    if (sys_ioctl(fd, VIDIOC_QUERYCAP, &video_caps) != -1)
+                    fs::path target_path{ "/dev" / entry.path().filename() };
+                    int fd = ::open(target_path.string().c_str(), O_RDWR | O_NONBLOCK);
+
+                    if (fd >= 0)
                     {
-                        if ((video_caps.capabilities & V4L2_CAP_VIDEO_CAPTURE) && 
-                            (video_caps.capabilities & V4L2_CAP_STREAMING)) 
+                        v4l2_capability video_caps = {};
+                        if (sys_ioctl(fd, VIDIOC_QUERYCAP, &video_caps) != -1)
                         {
-                            // check if have any formats
-                            v4l2_fmtdesc format_desc = {};
-                            format_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-
-                            if (sys_ioctl(fd, VIDIOC_ENUM_FMT, &format_desc) == 0)
+                            if ((video_caps.capabilities & V4L2_CAP_VIDEO_CAPTURE) &&
+                                (video_caps.capabilities & V4L2_CAP_STREAMING))
                             {
-                                ++device_count;
-                            }
-                            
-                        }
-                    }
+                                // check if have any formats
+                                v4l2_fmtdesc format_desc = {};
+                                format_desc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-                    ::close(fd);
+                                if (sys_ioctl(fd, VIDIOC_ENUM_FMT, &format_desc) == 0)
+                                {
+                                    ++device_count;
+                                }
+
+                            }
+                        }
+
+                        ::close(fd);
+                    }
                 }
             }
+        }
+        catch (const fs::filesystem_error& error)
+        {
+            RWC_LOG_WARN("Failed to scan {} for video devices: {}", scan_path.string(), error.what());
         }
 
         return device_count;
@@ -417,17 +427,20 @@ namespace rwc
     
     bool v4l2_webcam_device::dequeue_buffers()
     {
+        // VIDIOC_DQBUF ignores buffer.index as input - the kernel always fills
+        // it in with whichever buffer is ready next. Setting it here has no
+        // effect on which buffer comes back; this loop just drains exactly
+        // m_buffer_pool.size() buffers, in whatever order the driver returns them.
         for (size_t i = 0; i < m_buffer_pool.size(); ++i)
         {
             v4l2_buffer buffer{};
             buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             buffer.memory = V4L2_MEMORY_MMAP;
-            buffer.index = static_cast<uint32_t>(i);
 
             if (sys_ioctl(m_device_fd, VIDIOC_DQBUF, &buffer) < 0)
                 return false;
         }
-        
+
         return true;
     }
     
@@ -454,7 +467,8 @@ namespace rwc
     webcam_error_status v4l2_webcam_device::wait_device_ready(std::chrono::seconds timeout)
     {
         timeval timeout_value{ .tv_sec = timeout.count(), .tv_usec = 0  };
-        fd_set fds_read{};
+        fd_set fds_read;
+        FD_ZERO(&fds_read);
         FD_SET(m_device_fd, &fds_read);
         int result = 0;
 
@@ -498,6 +512,10 @@ namespace rwc
             destroy_webcam_buffers();
             return status;
         }
+
+        // Buffers recycled from a previous session may be sized for a
+        // different resolution; start every session with an empty pool.
+        m_frame_pool->reset();
 
         m_streaming = true;
         m_v4l2_thread = std::make_unique<std::jthread>([this](auto token){ v4l2_capture_thread(token); });
@@ -571,23 +589,25 @@ namespace rwc
             last_sequence = buffer.sequence;
             have_last_sequence = true;
 
-            std::unique_ptr<uint8_t[]> img_buffer{ new (std::nothrow) uint8_t[buffer.bytesused] };
-            if (!img_buffer)
-            {
-                m_last_frame_status = webcam_error_status::cannot_create_buffer;
-                return;
-            }
-
-            std::memcpy(img_buffer.get(), m_buffer_pool[buffer.index].data, buffer.bytesused);
+            // Decode straight out of the mmap'd V4L2 buffer: it belongs to
+            // userspace until VIDIOC_QBUF below, so there is no need to copy
+            // it out first - that copy used to happen here but the buffer was
+            // still only requeued after decoding finished either way, so it
+            // never actually bought the driver any extra time.
+            std::span<const uint8_t> raw_src{
+                static_cast<const uint8_t*>(m_buffer_pool[buffer.index].data), buffer.bytesused };
 
             auto timestamp = rwc::utils::current_timestamp();
-            webcam_frame_rgb24 frame{ m_current_format.width, m_current_format.height,
-                                      buffer.bytesused, timestamp, std::move(img_buffer) };
+            webcam_frame_rgb24 frame{ m_current_format.width, m_current_format.height, 0, timestamp, {} };
 
-            status = decode_frame_to_rgb24(&frame, m_current_format.codec, &decoder);
+            status = decode_frame_to_rgb24(raw_src, &frame, m_current_format.codec, &decoder);
             if (status == webcam_error_status::ok)
             {
-                m_frame_queue.enqueue(std::move(frame));
+                if (m_frame_queue.enqueue(std::move(frame)))
+                {
+                    RWC_LOG_WARN("Frame queue full: dropped the oldest unread frame to make room "
+                                 "[total dropped={}]", m_frame_queue.dropped_count());
+                }
             }
             // else: ignore this frame and go to another. This is expected to happen
             // transiently (e.g. a corrupt frame, or the one-frame decode delay some
@@ -609,7 +629,8 @@ namespace rwc
         return result;
     }
     
-    webcam_error_status v4l2_webcam_device::decode_frame_to_rgb24(webcam_frame_rgb24* frame, uint32_t codec, webcam_image_decoder* decoder)
+    webcam_error_status v4l2_webcam_device::decode_frame_to_rgb24(std::span<const uint8_t> raw_src, webcam_frame_rgb24* frame,
+                                                                    uint32_t codec, webcam_image_decoder* decoder)
     {
         static constexpr uint32_t rgb_bytes_per_pixel{ 3 };
         static constexpr std::array supported_codecs {
@@ -627,15 +648,17 @@ namespace rwc
         }
 
         uint32_t new_buffer_size = frame->width * frame->height * rgb_bytes_per_pixel;
-        std::unique_ptr<uint8_t[]> new_buffer(new (std::nothrow) uint8_t[new_buffer_size]);
+        // Recycled from m_frame_pool's free list when possible, instead of a
+        // fresh heap allocation on every captured frame.
+        frame_buffer_pool::owned_buffer new_buffer = m_frame_pool->acquire(new_buffer_size);
         if (!new_buffer)
         {
             RWC_LOG_ERROR("Failed to allocate {:.3f} MiB of memory for frame buffer", new_buffer_size / 1024.0 / 1024.0);
             return webcam_error_status::memory_exhausted;
         }
 
-        bool decoded = decoder->decode_to_rgb24(std::span{ frame->buffer.get(), frame->size }, 
-                                                std::span{ new_buffer.get(), new_buffer_size }, 
+        bool decoded = decoder->decode_to_rgb24(raw_src,
+                                                std::span{ new_buffer.get(), new_buffer_size },
                                                 codec);
         if (!decoded)
         {

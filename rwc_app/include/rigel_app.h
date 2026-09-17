@@ -60,6 +60,13 @@ private:
     void process_tasks();
     void change_webcam_capture_format(const rwc::capture_format_info& new_format_info);
     void update_webcam_properties();
+    // Only the UI/main thread calls these, guarding against overlapping
+    // start_stream()/stop_stream()/set_current_format()/etc. calls on
+    // m_webcam_device when the user triggers a second device action (change
+    // device, change format, reset properties) while a prior one's async work
+    // is still in flight.
+    bool begin_webcam_operation();
+    void end_webcam_operation();
 
 protected:
     void renderer_changed_handler(size_t renderer_index);
@@ -84,4 +91,5 @@ private:
     bool m_webcam_vsync = false;
     bool m_draw_frame = false;
     bool m_image_flipped = false;
+    bool m_webcam_op_pending = false;
 };

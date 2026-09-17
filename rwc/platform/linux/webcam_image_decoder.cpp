@@ -166,10 +166,7 @@ namespace rwc
         return status == 0;
     }
 
-    webcam_image_decoder::webcam_image_decoder()
-        : m_context(std::make_unique<context>())
-    {
-    }
+    webcam_image_decoder::webcam_image_decoder() = default;
 
     webcam_image_decoder::~webcam_image_decoder()
     {
@@ -183,29 +180,37 @@ namespace rwc
         return (value < min) ? min : ((max < value) ? max : value);
     }
 
-    static inline bool yuyv_to_rgb24(const uint8_t* src, uint8_t* dest, size_t src_pixel_count)
+    // src is packed YUYV (2 bytes/pixel); dest is interleaved RGB24 (3 bytes/pixel).
+    static inline bool yuyv_to_rgb24(std::span<const uint8_t> src, std::span<uint8_t> dest)
     {
-        if (!src || !dest || !src_pixel_count)
+        // YUYV encodes 2 pixels per 4-byte macropixel, so src must hold a whole
+        // number of macropixels and dest must be large enough for the RGB24
+        // output those macropixels expand to.
+        const size_t macropixel_count = src.size() / 4;
+        const size_t required_dest_size = macropixel_count * 2 * 3;
+
+        if (src.empty() || src.size() % 4 != 0 || dest.size() < required_dest_size)
             return false;
 
-        size_t pixel_count = src_pixel_count;
+        const uint8_t* src_ptr = src.data();
+        uint8_t* dest_ptr = dest.data();
 
-        for (; pixel_count > 3; pixel_count -= 4)
+        for (size_t remaining_bytes = src.size(); remaining_bytes > 3; remaining_bytes -= 4)
         {
-            const int16_t y0 = *src++;
-            const int16_t cr = *src++;
-            const int16_t y1 = *src++;
-            const int16_t cb = *src++;
+            const int16_t y0 = *src_ptr++;
+            const int16_t cr = *src_ptr++;
+            const int16_t y1 = *src_ptr++;
+            const int16_t cb = *src_ptr++;
 
             const int16_t yy0 = 19 * (y0 - 16);
             const int16_t yy1 = 19 * (y1 - 16);
 
-            *dest++ = uint8_t(clamp((yy0 + 32*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(clamp((yy0 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(clamp((yy0 + 26*(cr - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(clamp((yy1 + 32*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(clamp((yy1 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
-            *dest++ = uint8_t(clamp((yy1 + 26*(cr - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy0 + 32*(cb - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy0 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy0 + 26*(cr - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy1 + 32*(cb - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy1 - 13*(cr - 128) - 6*(cb - 128)) >> 4, 0, 255));
+            *dest_ptr++ = uint8_t(clamp((yy1 + 26*(cr - 128)) >> 4, 0, 255));
         }
 
         return true;
@@ -216,11 +221,15 @@ namespace rwc
                                                uint32_t codec_type)
     {
         if (codec_type == RWC_WEBCAM_CODEC_TYPE_YUYV || codec_type == RWC_WEBCAM_CODEC_TYPE_YUY2)
-            return yuyv_to_rgb24(src.data(), dest.data(), src.size());
+            return yuyv_to_rgb24(src, dest);
         else if (codec_type == RWC_WEBCAM_CODEC_TYPE_MJPEG || codec_type == RWC_WEBCAM_CODEC_TYPE_JPEG)
             return mjpeg_to_rgb24(src, dest);
         else if (codec_type == RWC_WEBCAM_CODEC_TYPE_H264)
+        {
+            if (!m_context)
+                m_context = std::make_unique<context>();
             return h264_to_rgb24(src, dest, m_context->h264_decoder);
+        }
         else
             return false;
     }

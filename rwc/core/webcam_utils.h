@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <rwc/core/webcam_device.hpp>
 #include <rwc/platform/platform.hpp>
 

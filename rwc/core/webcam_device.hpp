@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <functional>
 
 #include <rwc/platform/platform.hpp>
 
@@ -73,7 +74,12 @@ namespace rwc
         std::uint32_t height;
         std::uint32_t size;
         std::time_t timestamp;
-        std::unique_ptr<std::uint8_t[]> buffer;
+        // Type-erased deleter so platform backends can hand out buffers
+        // recycled from an internal pool (avoiding a heap alloc/free pair per
+        // captured frame) while still exposing a plain owning pointer to
+        // callers; a default std::unique_ptr<uint8_t[]> converts into this
+        // implicitly, so backends that don't pool buffers need no changes.
+        std::unique_ptr<std::uint8_t[], std::function<void(std::uint8_t*)>> buffer;
     };
 
     enum class webcam_error_status

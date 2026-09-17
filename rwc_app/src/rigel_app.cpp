@@ -302,16 +302,34 @@ void rigel_app::setup_ui_settings()
     webcam_preview_ui::update_settings();
 }
 
+bool rigel_app::begin_webcam_operation()
+{
+    if (m_webcam_op_pending)
+        return false;
+
+    m_webcam_op_pending = true;
+    return true;
+}
+
+void rigel_app::end_webcam_operation()
+{
+    m_webcam_op_pending = false;
+}
+
 bool rigel_app::setup_webcam_device(size_t device_index)
 {
     auto& wcam = m_webcam_device;
     wcam = rwc::webcam_manager::create_device();
     if (wcam->open(uint32_t(device_index)) != rwc::webcam_error_status::ok)
+    {
+        end_webcam_operation();
         return false;
+    }
 
     auto on_webcam_stream_started = [this](){
+        end_webcam_operation();
         create_webcam_texture();
-        webcam_preview_ui::set_canvas_loading(false); 
+        webcam_preview_ui::set_canvas_loading(false);
     };
 
     auto default_format = wcam->current_format();
@@ -319,13 +337,16 @@ bool rigel_app::setup_webcam_device(size_t device_index)
     {
         webcam_preview_ui::set_canvas_loading(true);
 
-        // propagate exception
         m_task_queue.push_task(
-            [this](){ m_webcam_device->start_stream(); 
-                      update_webcam_properties(); 
+            [this](){ m_webcam_device->start_stream();
+                      update_webcam_properties();
                       setup_ui_data(); },
             std::move(on_webcam_stream_started)
         );
+    }
+    else
+    {
+        end_webcam_operation();
     }
 
     return true;
@@ -497,7 +518,7 @@ void rigel_app::process_webcam_frame()
             }
         }
     }
-    else 
+    else
     {
         m_draw_frame = false;
     }
@@ -652,6 +673,9 @@ void rigel_app::setup_ui_data()
 
 void rigel_app::webcam_device_changed_handler(size_t device_index)
 {
+    if (!begin_webcam_operation())
+        return;
+
     webcam_preview_ui::set_canvas_loading(true);
 
     m_task_queue.push_task(
@@ -725,24 +749,28 @@ void rigel_app::webcam_format_changed_handler(size_t format_index)
 
 void rigel_app::change_webcam_capture_format(const rwc::capture_format_info& new_format_info)
 {
+    if (!begin_webcam_operation())
+        return;
+
     auto& wcam = m_webcam_device;
 
     bool is_streaming = wcam->is_streaming();
     if (is_streaming)
         wcam->stop_stream();
 
-    if (wcam->set_current_format(new_format_info))
+    if (wcam->set_current_format(new_format_info) && is_streaming)
     {
-        if (is_streaming)
-        {
-            webcam_preview_ui::set_canvas_loading(true);
-            m_task_queue.push_task(
-                [&wcam](){ wcam->start_stream(); },
-                [this]() { create_webcam_texture();
-                           webcam_preview_ui::set_canvas_loading(false); }
-            );
-        }
+        webcam_preview_ui::set_canvas_loading(true);
+        m_task_queue.push_task(
+            [this](){ m_webcam_device->start_stream(); },
+            [this]() { end_webcam_operation();
+                       create_webcam_texture();
+                       webcam_preview_ui::set_canvas_loading(false); }
+        );
+        return;
     }
+
+    end_webcam_operation();
 }
 
 void rigel_app::vsync_changed_handler(size_t vsync_index)
@@ -785,13 +813,16 @@ void rigel_app::webcam_property_changed_handler(const rwc::webcam_ctrl_property&
 
 void rigel_app::webcam_properties_reseted_handler()
 {
+    if (!begin_webcam_operation())
+        return;
+
     webcam_preview_ui::set_canvas_loading(true);
 
-    // propagate exception
     m_task_queue.push_task(
-        [this](){ m_webcam_device->ctrl()->reset_properties(); 
-                  update_webcam_properties(); 
-                  webcam_preview_ui::set_canvas_loading(false); }
+        [this](){ m_webcam_device->ctrl()->reset_properties();
+                  update_webcam_properties();
+                  webcam_preview_ui::set_canvas_loading(false); },
+        [this](){ end_webcam_operation(); }
     );
 }
 

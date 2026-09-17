@@ -3,6 +3,9 @@
 #include <chrono>
 #include <future>
 #include <mutex>
+#include <exception>
+
+#include <rwc/logger/logger.h>
 
 void task_queue::push_task(task_type task)
 {
@@ -41,21 +44,45 @@ void task_queue::process_tasks(std::chrono::milliseconds timeout)
 {
     std::lock_guard lock(m_task_mutex);
 
-    while (!m_tasks.empty()) 
+    while (!m_tasks.empty())
     {
         auto& task = m_tasks.front();
-        if (task.result.wait_for(timeout) == std::future_status::ready) 
+        if (task.result.wait_for(timeout) == std::future_status::ready)
         {
+            // task.result.get() rethrows whatever the background work threw;
+            // task.callback() runs on this (the UI) thread. Neither is allowed
+            // to escape process_tasks() - an uncaught exception here would
+            // blow up the main loop - but silently discarding it (as this used
+            // to do) hides real bugs, so log it instead.
             try
             {
                 task.result.get();
+            }
+            catch (const std::exception& error)
+            {
+                RWC_LOG_ERROR("Unhandled exception from an async task: {}", error.what());
+            }
+            catch (...)
+            {
+                RWC_LOG_ERROR("Unhandled non-standard exception from an async task");
+            }
+
+            try
+            {
                 if (task.callback)
                     task.callback();
             }
-            catch (...) {}
+            catch (const std::exception& error)
+            {
+                RWC_LOG_ERROR("Unhandled exception from a task completion callback: {}", error.what());
+            }
+            catch (...)
+            {
+                RWC_LOG_ERROR("Unhandled non-standard exception from a task completion callback");
+            }
 
             pop();
-        } 
+        }
         else
         {
             break;

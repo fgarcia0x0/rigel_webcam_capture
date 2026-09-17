@@ -19,6 +19,9 @@ namespace rwc
         ~webcam_image_decoder();
 
     private:
+        // The OpenH264 decoder context (~3MB+) is only created the first time an
+        // H264 frame is actually decoded, so YUYV/MJPEG-only sessions never pay
+        // for it.
         struct context;
         std::unique_ptr<context> m_context;
     };

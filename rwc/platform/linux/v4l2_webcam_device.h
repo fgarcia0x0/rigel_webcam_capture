@@ -3,7 +3,9 @@
 #include <rwc/core/webcam_device.hpp>
 #include <rwc/utils/swsr_ring_buffer.hpp>
 #include <rwc/platform/linux/webcam_image_decoder.h>
+#include <rwc/platform/linux/frame_buffer_pool.h>
 
+#include <span>
 #include <vector>
 #include <optional>
 #include <chrono>
@@ -57,7 +59,8 @@ namespace rwc
         bool webcam_stop_streaming();
         webcam_error_status wait_device_ready(std::chrono::seconds timeout);
         void v4l2_capture_thread(std::stop_token token);
-        webcam_error_status decode_frame_to_rgb24(webcam_frame_rgb24* frame, uint32_t codec, webcam_image_decoder* decoder);
+        webcam_error_status decode_frame_to_rgb24(std::span<const uint8_t> raw_src, webcam_frame_rgb24* frame,
+                                                    uint32_t codec, webcam_image_decoder* decoder);
         uint32_t to_v4l2_type(webcam_property_type type);
 
         struct buffer_data
@@ -73,6 +76,14 @@ namespace rwc
         std::vector<buffer_data> m_buffer_pool;
         std::unique_ptr<std::jthread> m_v4l2_thread;
         swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
+        // Buffers actually "in flight" (queued in m_frame_queue, being
+        // decoded into, or held by the caller) are never in this free list -
+        // it only smooths the alloc/free churn of buffers that have already
+        // been fully returned. It intentionally stays small: at max
+        // resolution (e.g. 2560x1440 RGB24 is ~10.5MB/buffer) a generous cap
+        // here would let the pool hoard tens of MB of idle memory instead of
+        // giving it back, which would work against the whole point of pooling.
+        std::shared_ptr<frame_buffer_pool> m_frame_pool{ std::make_shared<frame_buffer_pool>(2) };
         std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
         std::atomic<bool> m_opened{ false };
         std::atomic<bool> m_streaming{ false };

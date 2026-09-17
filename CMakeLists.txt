@@ -5,6 +5,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries instead of static ones" OFF)
 option(RWC_ENABLE_TESTING "Enable building of tests" ON)
 option(RWC_BUILD_APP "Enable building of rwc gui app" ON)
 option(RWC_ENABLE_STATIC_CRT "Enable static CRT on static libs only" ON)
+option(RWC_BUILD_BENCH_TOOLS "Enable building of dev benchmarking tools" ON)
 
 # links crt statically on static libs
 if (MSVC AND ${RWC_ENABLE_STATIC_CRT} AND NOT BUILD_SHARED_LIBS)
@@ -59,4 +60,8 @@ endif()
 if(RWC_ENABLE_TESTING)
     enable_testing()
     add_subdirectory(${RWC_BASE_DIR}/tests)
+endif()
+
+if(RWC_BUILD_BENCH_TOOLS)
+    add_subdirectory(${RWC_BASE_DIR}/tools/capture_bench)
 endif()
