@@ -15,7 +15,7 @@ namespace rwc
     //
     // acquire() may be called from any single thread (the capture thread, in
     // practice); the returned buffer's deleter (which calls release()) can
-    // run on *any* thread, since ownership of a webcam_frame is handed
+    // run on *any* thread, since ownership of a webcam_frame_rgb24 is handed
     // off to the caller of read_frame() and its buffer is freed whenever that
     // caller lets it go out of scope. release() is therefore mutex-protected.
     //

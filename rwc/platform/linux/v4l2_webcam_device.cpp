@@ -169,7 +169,7 @@ namespace rwc
         return true;
     }
     
-    std::expected<webcam_frame, webcam_error_status> v4l2_webcam_device::read_frame()
+    std::expected<webcam_frame_rgb24, webcam_error_status> v4l2_webcam_device::read_frame()
     {
         if (!is_opened())
             return std::unexpected{ webcam_error_status::bad_device };
@@ -598,10 +598,9 @@ namespace rwc
                 static_cast<const uint8_t*>(m_buffer_pool[buffer.index].data), buffer.bytesused };
 
             auto timestamp = rwc::utils::current_timestamp();
-            webcam_frame frame{ m_current_format.width, m_current_format.height, 0,
-                               webcam_utils::pixel_format_for_codec(m_current_format.codec), timestamp, {} };
+            webcam_frame_rgb24 frame{ m_current_format.width, m_current_format.height, 0, timestamp, {} };
 
-            status = decode_frame(raw_src, &frame, m_current_format.codec, &decoder);
+            status = decode_frame_to_rgb24(raw_src, &frame, m_current_format.codec, &decoder);
             if (status == webcam_error_status::ok)
             {
                 if (m_frame_queue.enqueue(std::move(frame)))
@@ -630,9 +629,10 @@ namespace rwc
         return result;
     }
     
-    webcam_error_status v4l2_webcam_device::decode_frame(std::span<const uint8_t> raw_src, webcam_frame* frame,
-                                                          uint32_t codec, webcam_image_decoder* decoder)
+    webcam_error_status v4l2_webcam_device::decode_frame_to_rgb24(std::span<const uint8_t> raw_src, webcam_frame_rgb24* frame,
+                                                                    uint32_t codec, webcam_image_decoder* decoder)
     {
+        static constexpr uint32_t rgb_bytes_per_pixel{ 3 };
         static constexpr std::array supported_codecs {
             RWC_WEBCAM_CODEC_TYPE_YUYV,
             RWC_WEBCAM_CODEC_TYPE_MJPEG,
@@ -647,11 +647,7 @@ namespace rwc
             return webcam_error_status::unsupported_codec;
         }
 
-        // rgb24 is 3 bytes/pixel interleaved; nv12 is 1.5 bytes/pixel (a Y
-        // plane followed by a half-height interleaved U,V plane).
-        uint32_t new_buffer_size = frame->format == webcam_pixel_format::rgb24
-                                       ? frame->width * frame->height * 3
-                                       : frame->width * frame->height * 3 / 2;
+        uint32_t new_buffer_size = frame->width * frame->height * rgb_bytes_per_pixel;
         // Recycled from m_frame_pool's free list when possible, instead of a
         // fresh heap allocation on every captured frame.
         frame_buffer_pool::owned_buffer new_buffer = m_frame_pool->acquire(new_buffer_size);
@@ -661,8 +657,9 @@ namespace rwc
             return webcam_error_status::memory_exhausted;
         }
 
-        bool decoded = decoder->decode(raw_src, std::span{ new_buffer.get(), new_buffer_size },
-                                       frame->width, frame->height, codec);
+        bool decoded = decoder->decode_to_rgb24(raw_src,
+                                                std::span{ new_buffer.get(), new_buffer_size },
+                                                codec);
         if (!decoded)
         {
             RWC_LOG_ERROR("Failed to decode frame [codec={}]", fourcc_to_str(codec));

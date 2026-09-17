@@ -18,16 +18,16 @@ tools/        capture_bench, a standalone CLI harness used for profiling
 
 Most "webcam capture" side projects reach for OpenCV or GStreamer and call it a day. This one goes a layer lower: it talks to `/dev/videoN` with raw `ioctl`/`mmap`/`select` calls on Linux, and to the Media Foundation COM API with a Direct3D11 staging-texture pool on Windows, because the goal was to actually understand and control the full pipeline — device capability negotiation, kernel buffer lifecycle, decode, color space handling, and GPU upload — rather than depend on a library that hides all of it.
 
-The two codecs that need real decoding (MJPEG and H.264) are handled by industry-standard libraries (`libjpeg-turbo`, `OpenH264`) rather than reinvented — writing a JPEG or H.264 decoder from scratch is its own multi-year project, not something a capture library should own. Everything *around* those libraries — the capture thread, the buffering strategy, the colorspace-correct GPU upload, the lock-free handoff between threads — is original code.
+The two codecs that need real decoding (MJPEG and H.264) are handled by industry-standard libraries (`libjpeg-turbo`, `OpenH264`) rather than reinvented — writing a JPEG or H.264 decoder from scratch is its own multi-year project, not something a capture library should own. Everything *around* those libraries — the capture thread, the buffering strategy, the GPU upload, the lock-free handoff between threads — is original code.
 
 ## Highlights
 
 - **Raw capture, both platforms.** Linux: `VIDIOC_REQBUFS`/`QUERYBUF`/`QBUF`/`DQBUF` with `mmap`'d kernel buffers and a `select()`-driven capture thread. Windows: `IMFSourceReader` fed through a `ID3D11Device` staging-texture pool for zero-copy-ish GPU handoff.
 - **Lock-free SPSC ring buffer** (`rwc::swsr_ring_buffer`) hands decoded frames from the capture thread to the consumer without a mutex, using atomic acquire/release ordering and a CAS loop on the overwrite-oldest path.
 - **A real frame buffer pool**, not per-frame `malloc`/`free`. Output buffers are recycled through a `unique_ptr` with a type-erased deleter, so the public API still looks like a normal owning pointer while the backend quietly reuses memory.
-- **NV12 decode pipeline.** MJPEG decodes straight to NV12 in one fused pass (no redundant chroma upsample/downsample round-trip); H.264 reformats OpenH264's native I420 output into NV12 losslessly (no color math at all); YUYV goes through `libyuv` SIMD instead of a scalar per-pixel loop. Output buffers are half the size of RGB24, with the source's actual colorspace (JPEG full-range vs. BT.601 studio-range) tracked and applied correctly when the GPU texture is created — not just visually similar.
+- **Deliberate decode quality choices.** MJPEG is decoded straight to interleaved RGB with `libjpeg-turbo` directly (`JDCT_ISLOW`, fancy chroma upsampling, block smoothing), not through `libyuv`'s JPEG wrapper, which hardcodes the fast/blockier IDCT path — a conscious quality-over-speed tradeoff. H.264 is decoded with `OpenH264`, kept alive across the whole stream (the SPS/PPS UVC devices send only once).
 - **Cross-platform abstraction that stays clean**: one `webcam_device` interface, one `webcam_manager` factory, platform-specific code entirely behind it. The SDL3/ImGui app never knows whether it's talking to V4L2 or Media Foundation.
-- **Measured, not assumed.** The NV12 migration was validated with `valgrind --tool=massif` before/after profiling on real capture sessions (see [Performance](#performance)), not just "should be faster."
+- **Measured, not assumed.** The frame buffer pool's impact was validated with `valgrind --tool=massif` before/after profiling on real capture sessions (see [Performance](#performance)), not just "should be faster."
 
 ## The app
 
@@ -54,10 +54,10 @@ v4l2_webcam_device    mmf_webcam_device
 capture thread  ──►  swsr_ring_buffer  ──►  read_frame()   (poll API, lock-free handoff)
      │
      ▼
-webcam_image_decoder
-  ├─ MJPEG → NV12   (libjpeg-turbo, fused decode + chroma downsample, single pass)
-  ├─ H.264 → NV12   (OpenH264, lossless I420 reformat, no color math)
-  └─ YUYV  → RGB24  (libyuv SIMD, I422 intermediate, no chroma loss)
+webcam_image_decoder            (every codec decodes to interleaved RGB24)
+  ├─ MJPEG → RGB24  (libjpeg-turbo directly, JDCT_ISLOW + fancy upsampling)
+  ├─ H.264 → RGB24  (OpenH264 native decode, then libyuv I420ToRAW)
+  └─ YUYV  → RGB24  (hand-written YUV→RGB conversion)
      │
      ▼
 frame_buffer_pool   (recycled output buffers, type-erased deleter)
@@ -67,7 +67,7 @@ Frames cross the capture-thread → consumer-thread boundary through the lock-fr
 
 ## Performance
 
-Buffer-format and pooling work was validated end-to-end with `valgrind --tool=massif`, comparing a 10-second capture session before and after, per codec, on a 2560x1440 UVC webcam:
+The frame buffer pool's effect was validated end-to-end with `valgrind --tool=massif`, comparing a 10-second capture session before and after, per codec, on a 2560x1440 UVC webcam:
 
 | Codec | Peak heap (before) | Peak heap (after) | Change |
 |---|---|---|---|
@@ -76,8 +76,6 @@ Buffer-format and pooling work was validated end-to-end with `valgrind --tool=ma
 | H.264 (2560x1440) | 54.67 MiB | 54.33 MiB | ~flat* |
 
 \* H.264's peak is dominated by OpenH264's own internal reference-picture buffers, not by anything this project controls.
-
-Switching MJPEG/H.264 output from RGB24 to NV12 also halves both the CPU-side buffer size and the GPU texture size (1.5 vs. 3 bytes/pixel), with no measured quality loss for H.264 (bit-identical to the RGB24 path — NV12 is a lossless reformat of OpenH264's native output) and an imperceptible mean error (~4.7/255) for MJPEG, verified by decoding real captured frames through both paths and comparing.
 
 ## Building
 

@@ -443,7 +443,7 @@ namespace rwc
         m_streaming = false;
     }
 
-    std::expected<webcam_frame, webcam_error_status> mmf_webcam_device::read_frame()
+    std::expected<webcam_frame_rgb24, webcam_error_status> mmf_webcam_device::read_frame()
     {
         if (!is_opened() || !is_streaming())
             return std::unexpected{ webcam_error_status::invalid_state };
@@ -759,8 +759,8 @@ namespace rwc
             }
 
             auto ts = rwc::utils::current_timestamp();
-            webcam_frame frame{ m_current_format.width, m_current_format.height,
-                               image_size, webcam_pixel_format::rgb24, ts, std::move(img_buffer) };
+            webcam_frame_rgb24 frame{ m_current_format.width, m_current_format.height,
+                                      image_size, ts, std::move(img_buffer) };
 
             m_frame_queue.enqueue(std::move(frame));
         }

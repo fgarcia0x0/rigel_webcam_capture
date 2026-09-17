@@ -45,7 +45,7 @@ namespace rwc
         bool is_streaming() const override;
         webcam_error_status start_stream() override;
         void stop_stream() override;
-        std::expected<webcam_frame, webcam_error_status> read_frame() override;
+        std::expected<webcam_frame_rgb24, webcam_error_status> read_frame() override;
 
         virtual ~mmf_webcam_device() override;
     private:
@@ -68,7 +68,7 @@ namespace rwc
         webcam_device_info m_device_info{};
         capture_format_info m_current_format{};
         std::unique_ptr<std::jthread> m_mmf_thread;
-        swsr_ring_buffer<webcam_frame, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
+        swsr_ring_buffer<webcam_frame_rgb24, RWC_WEBCAM_STREAMING_BUFFER_COUNT> m_frame_queue;
         std::atomic<webcam_error_status> m_last_frame_status{ webcam_error_status::ok };
         hwd_decode_backend m_preferred_backend{ hwd_decode_backend::none };
         std::unique_ptr<mmf_webcam_controller> m_controller;

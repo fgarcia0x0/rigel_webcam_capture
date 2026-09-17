@@ -68,29 +68,11 @@ namespace rwc
         std::vector<capture_format_info> formats;
     };
 
-    // Layout of a decoded frame's buffer, chosen per-codec by the backend
-    // (see webcam_utils::pixel_format_for_codec). Not user-selectable: it's
-    // whatever format is cheapest/lossless to decode a given codec into.
-    enum class webcam_pixel_format
-    {
-        // Interleaved 3 bytes/pixel, R,G,B order. buffer.size() == width*height*3.
-        rgb24,
-        // Planar/bi-planar 4:2:0, 1.5 bytes/pixel: a width*height Y plane
-        // (stride == width) immediately followed by a width*(height/2)
-        // interleaved U,V plane (stride == width). buffer.size() ==
-        // width*height*3/2. Whether the chroma is full-range (JPEG/MJPEG
-        // source) or studio/limited-range (H264 source) is NOT encoded here -
-        // see webcam_utils::codec_uses_full_range_yuv, needed to render this
-        // correctly (e.g. to pick the right SDL colorspace for the texture).
-        nv12,
-    };
-
-    struct webcam_frame
+    struct webcam_frame_rgb24
     {
         std::uint32_t width;
         std::uint32_t height;
         std::uint32_t size;
-        webcam_pixel_format format;
         std::time_t timestamp;
         // Type-erased deleter so platform backends can hand out buffers
         // recycled from an internal pool (avoiding a heap alloc/free pair per
@@ -220,7 +202,7 @@ namespace rwc
         virtual void stop_stream() = 0;
 
         [[nodiscard]]
-        virtual std::expected<webcam_frame, webcam_error_status> read_frame() = 0;
+        virtual std::expected<webcam_frame_rgb24, webcam_error_status> read_frame() = 0;
 
         virtual ~webcam_device() = default;
     };
