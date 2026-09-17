@@ -11,6 +11,7 @@
 #include <sstream>
 #include <format>
 #include <utility>
+#include <iomanip>
 
 namespace rwc::utils
 {
