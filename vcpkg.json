@@ -3,6 +3,14 @@
     {
       "name": "libyuv",
       "platform": "!windows"
+    },
+    {
+      "name": "openh264",
+      "platform": "!windows"
+    },
+    {
+      "name": "libjpeg-turbo",
+      "platform": "!windows"
     }
   ]
 }
